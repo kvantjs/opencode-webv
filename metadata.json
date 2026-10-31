@@ -1,0 +1,7 @@
+{
+  "name": "opencode-web",
+  "description": "Web client and session interface for OpenCode AI coding assistant with Google Gemini family models",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

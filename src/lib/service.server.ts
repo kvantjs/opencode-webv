@@ -48,9 +48,23 @@ export function createServiceConnection(dependencies: {
   }
 }
 
-export const serviceFetch = createServiceConnection({
-  discover: () => Service.discover(),
-  start: () =>
-    promisify(execFile)('opencode', ['service', 'start'], { timeout: 60_000 }),
-  fetch: (...args) => fetch(...args),
-})
+import { handleGeminiServiceRequest } from './gemini-service.server'
+
+export const serviceFetch = async (path: string, init?: RequestInit): Promise<Response> => {
+  // If external OPENCODE_URL is explicitly configured, attempt to forward to it
+  if (process.env.OPENCODE_URL) {
+    try {
+      const targetUrl = new URL(path, process.env.OPENCODE_URL)
+      const headers = new Headers(init?.headers)
+      if (process.env.OPENCODE_TOKEN) {
+        headers.set('authorization', `Bearer ${process.env.OPENCODE_TOKEN}`)
+      }
+      return await fetch(targetUrl, { ...init, headers })
+    } catch (err) {
+      console.warn('OPENCODE_URL fetch failed, using built-in Gemini engine:', err)
+    }
+  }
+
+  // Built-in Gemini service engine
+  return handleGeminiServiceRequest(path, init)
+}

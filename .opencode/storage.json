@@ -1,0 +1,104 @@
+{
+  "projects": [
+    {
+      "id": "opencode-web",
+      "name": "opencode-web",
+      "canonical": "/app/applet",
+      "sandboxes": [],
+      "time": {
+        "created": 1793414823549,
+        "updated": 1793414823549,
+        "active": 1793414823549
+      }
+    }
+  ],
+  "sessions": [
+    {
+      "id": "ses_1793414842037_g240f",
+      "projectID": "opencode-web",
+      "title": "Test Session",
+      "location": {
+        "directory": "/app/applet"
+      },
+      "cost": 0,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "time": {
+        "created": 1793414842037,
+        "updated": 1793414964419
+      },
+      "agent": "build",
+      "model": {
+        "id": "gemini-3.1-flash-lite",
+        "providerID": "google"
+      }
+    }
+  ],
+  "messages": {
+    "ses_1793414842037_g240f": [
+      {
+        "id": "msg_u_1793414848472_j68n",
+        "type": "user",
+        "text": "Hello Gemini! What models exist in the Gemini family?",
+        "files": [],
+        "time": {
+          "created": 1793414848472
+        }
+      },
+      {
+        "id": "msg_a_1793414848476_3sar",
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "providerID": "google",
+          "id": "gemini-3.8-flash"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": ""
+          }
+        ],
+        "time": {
+          "created": 1793414848476
+        }
+      },
+      {
+        "id": "msg_u_1793414964419_yyt6",
+        "type": "user",
+        "text": "Hello Gemini!",
+        "files": [],
+        "time": {
+          "created": 1793414964419
+        }
+      },
+      {
+        "id": "msg_a_1793414964422_6bhn",
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "providerID": "google",
+          "id": "gemini-3.1-flash-lite"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "The Gemini family, developed by Google, is a multimodal AI architecture designed to scale from mobile devices to massive data centers. \n\nAs of late 2026, the Gemini lineup is categorized by capability, size, and specific use-case optimization. Here is the breakdown:\n\n### 1. Gemini Ultra\n*   **Purpose:** The most capable model for highly complex tasks.\n*   **Use Case:** Large-scale reasoning, advanced coding, complex creative collaboration, and deep analysis of massive datasets.\n*   **Environment:** Runs in high-performance data centers.\n\n### 2. Gemini Pro\n*   **Purpose:** The best model for scaling across a wide range of tasks.\n*   **Use Case:** Ideal for general-purpose applications, customer support bots, content generation, and enterprise workflows.\n*   **Environment:** Optimized for balanced performance and latency in cloud environments.\n\n### 3. Gemini Flash\n*   **Purpose:** Built for speed, efficiency, and high-volume throughput.\n*   **Use Case:** Real-time applications, low-latency API interactions, and processing high-frequency data streams.\n*   **Environment:** Optimized for cost-effectiveness and rapid response times.\n\n### 4. Gemini Nano\n*   **Purpose:** The most efficient model built specifically for on-device deployment.\n*   **Use Case:** Tasks that require data privacy (running locally), offline capability, and low power consumption.\n*   **Environment:** Designed to run directly on smartphones (e.g., Pixel series) and edge hardware.\n\n---\n\n### Key Technical Characteristics\nAcross these models, the Gemini family shares several defining architectural features:\n\n*   **Native Multimodality:** Unlike older models that stitch together separate modules for vision and text, Gemini was trained from the start on different types of data (text, images, audio, video, and code) simultaneously.\n*   **Long Context Window:** Gemini models support massive context windows (up to 1M–2M+ tokens), allowing them to ingest entire codebases, long videos, or massive PDF libraries in a single prompt.\n*   **Reasoning-Optimized:** All models in the family are tuned to follow complex instructions and handle multi-step logical reasoning chains effectively.\n\n### How to use them\nIf you are developing an application, these are accessed primarily through:\n1.  **Google AI Studio:** For rapid prototyping and testing.\n2.  **Vertex AI (Google Cloud):** For enterprise-grade, scalable production deployments.\n3.  **Gemini API:** For integrating model capabilities directly into your software stack.\n\n---\n\n**Example: Selecting a Model for your App**\n\n| Requirement | Recommended Model |\n| :--- | :--- |\n| **Edge/Offline device** | Gemini Nano |\n| **High-volume API/Real-time** | Gemini Flash |\n| **General enterprise tasks** | Gemini Pro |\n| **Complex research/Math/Code** | Gemini Ultra |\n\n*Note: Google frequently updates the model checkpoints (e.g., Gemini 1.5 Pro, Gemini 1.5 Flash). Always refer to the [Google Cloud Vertex AI documentation](https://cloud.google.com/vertex-ai) for the latest version tags.*"
+          }
+        ],
+        "time": {
+          "created": 1793414964422,
+          "completed": 1793414969056
+        },
+        "finish": "stop"
+      }
+    ]
+  }
+}
