@@ -2,8 +2,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Global Catch-all Deny Rule (Pillar 1 / Safety Net)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
     function isSignedIn() {
-      return true;
+      return request.auth != null;
     }
 
     function isOwner(userId) {
@@ -14,60 +19,124 @@ service cloud.firestore {
       return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Entity Validation Blueprints ---
+
     function isValidSession(data) {
       return data.keys().hasAll(['id', 'userId', 'title', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'userId', 'title', 'agentMode', 'model', 'directory', 'status', 'createdAt', 'updatedAt', 'rawData']) &&
              data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
              data.userId == request.auth.uid &&
              data.title is string && data.title.size() > 0 && data.title.size() <= 500 &&
              data.createdAt is number &&
-             data.updatedAt is number;
+             data.updatedAt is number &&
+             (!('agentMode' in data) || (data.agentMode is string && data.agentMode.size() <= 64)) &&
+             (!('model' in data) || (data.model is string && data.model.size() <= 64)) &&
+             (!('directory' in data) || (data.directory is string && data.directory.size() <= 512)) &&
+             (!('status' in data) || (data.status is string && data.status.size() <= 32)) &&
+             (!('rawData' in data) || (data.rawData is string && data.rawData.size() <= 1048576));
     }
 
     function isValidMessage(data, parentSession) {
       return data.keys().hasAll(['id', 'sessionId', 'userId', 'role', 'createdAt']) &&
+             data.keys().hasOnly(['id', 'sessionId', 'userId', 'role', 'content', 'thoughts', 'status', 'createdAt', 'rawMessage']) &&
              data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
-             data.sessionId is string &&
+             data.sessionId is string && data.sessionId.size() > 0 && data.sessionId.size() <= 128 &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
              data.userId == request.auth.uid &&
              parentSession.data.userId == request.auth.uid &&
              (data.role == 'user' || data.role == 'assistant' || data.role == 'system') &&
-             data.createdAt is number;
+             data.createdAt is number &&
+             (!('content' in data) || (data.content is string && data.content.size() <= 1048576)) &&
+             (!('thoughts' in data) || data.thoughts == null || (data.thoughts is string && data.thoughts.size() <= 1048576)) &&
+             (!('status' in data) || (data.status is string && data.status.size() <= 32)) &&
+             (!('rawMessage' in data) || (data.rawMessage is string && data.rawMessage.size() <= 1048576));
     }
 
     function isValidProject(data) {
       return data.keys().hasAll(['id', 'userId', 'name', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'userId', 'name', 'directory', 'createdAt', 'updatedAt']) &&
              data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
              data.userId == request.auth.uid &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
              data.createdAt is number &&
-             data.updatedAt is number;
+             data.updatedAt is number &&
+             (!('directory' in data) || (data.directory is string && data.directory.size() <= 512));
     }
 
-    match /sessions/{sessionId} {
-      allow get: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid);
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['id', 'userId', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'userId', 'email', 'displayName', 'photoURL', 'createdAt', 'updatedAt']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.createdAt is number &&
+             data.updatedAt is number &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 256)) &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1024));
+    }
+
+    // --- Collections ---
+
+    // 1. User Profiles Collection (Strict PII isolation: users can only see & modify their own)
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
       allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidId(sessionId) && isValidSession(request.resource.data);
-      allow update: if isSignedIn() && isValidId(sessionId) && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && isValidUserProfile(incoming());
+      allow update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt;
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    // 2. Sessions Collection (Only owner can read/write their sessions)
+    match /sessions/{sessionId} {
+      allow get: if isSignedIn() && isValidId(sessionId) && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(sessionId) && isValidSession(incoming());
+      allow update: if isSignedIn() && isValidId(sessionId) &&
+                       resource.data.userId == request.auth.uid &&
+                       isValidSession(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt;
       allow delete: if isSignedIn() && isValidId(sessionId) && resource.data.userId == request.auth.uid;
 
+      // Messages Subcollection
       match /messages/{messageId} {
-        allow get: if isSignedIn() && isValidId(messageId) && (
-          resource == null || resource.data.userId == request.auth.uid
-        );
+        allow get: if isSignedIn() && isValidId(messageId) && resource.data.userId == request.auth.uid;
         allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
         allow create: if isSignedIn() && isValidId(messageId) &&
-          isValidMessage(request.resource.data, get(/databases/$(database)/documents/sessions/$(sessionId)));
+                         isValidMessage(incoming(), get(/databases/$(database)/documents/sessions/$(sessionId)));
         allow update: if isSignedIn() && isValidId(messageId) &&
-          resource.data.userId == request.auth.uid;
-        allow delete: if isSignedIn() && isValidId(messageId) &&
-          resource.data.userId == request.auth.uid;
+                         resource.data.userId == request.auth.uid &&
+                         isValidMessage(incoming(), get(/databases/$(database)/documents/sessions/$(sessionId))) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt;
+        allow delete: if isSignedIn() && isValidId(messageId) && resource.data.userId == request.auth.uid;
       }
     }
 
+    // 3. Projects Collection (Only owner can read/write their projects)
     match /projects/{projectId} {
-      allow get: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid);
+      allow get: if isSignedIn() && isValidId(projectId) && resource.data.userId == request.auth.uid;
       allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidId(projectId) && isValidProject(request.resource.data);
-      allow update: if isSignedIn() && isValidId(projectId) && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(projectId) && isValidProject(incoming());
+      allow update: if isSignedIn() && isValidId(projectId) &&
+                       resource.data.userId == request.auth.uid &&
+                       isValidProject(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt;
       allow delete: if isSignedIn() && isValidId(projectId) && resource.data.userId == request.auth.uid;
     }
   }

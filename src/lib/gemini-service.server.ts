@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
+import ts from 'typescript'
 import { GoogleGenAI, Type } from '@google/genai'
 import type {
   AgentInfo,
@@ -78,7 +79,9 @@ export function assertInsideAgentWorkspace(filepath: string, baseDir: string): s
 export async function ensureSessionWorkspaceExists(sessionId: string): Promise<string> {
   const dir = getSessionWorkspaceDir(sessionId)
   try {
-    await fs.mkdir(path.join(dir, 'src'), { recursive: true })
+    await fs.mkdir(path.join(dir, 'src', 'components'), { recursive: true })
+
+    // 1. Vite HTML Entry: index.html
     const indexPath = path.join(dir, 'index.html')
     try {
       await fs.access(indexPath)
@@ -87,69 +90,348 @@ export async function ensureSessionWorkspaceExists(sessionId: string): Promise<s
         indexPath,
         `<!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Session Web App</title>
-  <style>
-    body {
-      margin: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      display: grid;
-      place-items: center;
-      min-height: 100vh;
-      background: #0f172a;
-      color: #f8fafc;
-      text-align: center;
-      padding: 24px;
-      box-sizing: border-box;
-    }
-    .card {
-      max-width: 520px;
-      background: rgba(30, 41, 59, 0.7);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
-      padding: 32px;
-      backdrop-filter: blur(8px);
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
-    }
-    h1 { font-size: 24px; margin-top: 0; color: #38bdf8; }
-    p { color: #94a3b8; line-height: 1.6; }
-    .badge {
-      display: inline-block;
-      padding: 4px 12px;
-      background: rgba(56, 189, 248, 0.15);
-      color: #38bdf8;
-      border-radius: 9999px;
-      font-size: 13px;
-      font-weight: 500;
-      margin-bottom: 16px;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <span class="badge">Session Workspace</span>
-    <h1>Live App Preview</h1>
-    <p>Ask the agent in the chat to create a web app, component, or site. Your live application preview will render here automatically!</p>
-  </div>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>React + Vite Application</title>
+  </head>
+  <body class="bg-slate-900 text-slate-100 min-h-screen">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>`,
         'utf-8',
       )
     }
 
-    const readmePath = path.join(dir, 'README.md')
+    // 2. React Entry: src/main.tsx
+    const mainTsxPath = path.join(dir, 'src', 'main.tsx')
     try {
-      await fs.access(readmePath)
+      await fs.access(mainTsxPath)
     } catch {
       await fs.writeFile(
-        readmePath,
-        `# Session Development Environment\n\nSession ID: ${sessionId}\nAll files, builds, and code developed by the AI agent in this conversation live here.\n`,
+        mainTsxPath,
+        `import React from 'react'
+import { createRoot } from 'react-dom/client'
+import App from './App'
+import './index.css'
+
+const container = document.getElementById('root')
+if (container) {
+  const root = createRoot(container)
+  root.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  )
+}
+`,
         'utf-8',
       )
     }
 
+    // 3. React Main Component: src/App.tsx (Full functional React + Vite app with real Public APIs)
+    const appTsxPath = path.join(dir, 'src', 'App.tsx')
+    try {
+      await fs.access(appTsxPath)
+    } catch {
+      await fs.writeFile(
+        appTsxPath,
+        `import React, { useState, useEffect } from 'react'
+
+interface WeatherData {
+  temperature: number
+  windspeed: number
+  weathercode: number
+  time: string
+}
+
+interface QuoteData {
+  quote: string
+  author: string
+}
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<'weather' | 'crypto' | 'quotes'>('weather')
+  const [city, setCity] = useState('Sao Paulo')
+  const [weather, setWeather] = useState<WeatherData | null>(null)
+  const [quote, setQuote] = useState<QuoteData | null>(null)
+  const [cryptoPrices, setCryptoPrices] = useState<Record<string, { usd: number; usd_24h_change: number }> | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch real Public Weather API (Open-Meteo)
+  const fetchWeather = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      // Default to Sao Paulo coordinates (-23.55, -46.63)
+      const res = await fetch(
+        'https://api.open-meteo.com/v1/forecast?latitude=-23.55&longitude=-46.63&current_weather=true'
+      )
+      if (!res.ok) throw new Error('Falha ao obter dados meteorológicos')
+      const data = await res.json()
+      if (data.current_weather) {
+        setWeather({
+          temperature: data.current_weather.temperature,
+          windspeed: data.current_weather.windspeed,
+          weathercode: data.current_weather.weathercode,
+          time: data.current_weather.time,
+        })
+      }
+    } catch (err: any) {
+      setError(err.message || 'Erro ao carregar clima')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Fetch real Public Quotes API
+  const fetchQuote = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('https://dummyjson.com/quotes/random')
+      if (!res.ok) throw new Error('Falha ao carregar citação')
+      const data = await res.json()
+      setQuote({ quote: data.quote, author: data.author })
+    } catch (err: any) {
+      setError(err.message || 'Erro ao carregar citação')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Fetch real Public Crypto Prices (CoinGecko)
+  const fetchCrypto = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(
+        'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true'
+      )
+      if (!res.ok) throw new Error('Falha ao carregar cotações de cripto')
+      const data = await res.json()
+      setCryptoPrices(data)
+    } catch (err: any) {
+      setError(err.message || 'Erro ao carregar cotações')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'weather') fetchWeather()
+    if (activeTab === 'quotes') fetchQuote()
+    if (activeTab === 'crypto') fetchCrypto()
+  }, [activeTab])
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-6 font-sans">
+      <header className="max-w-2xl w-full text-center my-6">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold tracking-wide uppercase mb-3">
+          React 19 + Vite Live Runtime
+        </div>
+        <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-cyan-400 via-sky-300 to-indigo-400 bg-clip-text text-transparent">
+          Web App em React + Vite com APIs Públicas
+        </h1>
+        <p className="text-slate-400 text-sm mt-2">
+          Peça ao agente no chat para criar qualquer web app ou site em React+Vite com dados de APIs públicas.
+        </p>
+      </header>
+
+      {/* Navigation Tabs */}
+      <div className="flex bg-slate-900 p-1.5 rounded-xl border border-slate-800 gap-1.5 mb-6 max-w-md w-full">
+        <button
+          onClick={() => setActiveTab('weather')}
+          className={\`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition \${
+            activeTab === 'weather'
+              ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30'
+              : 'text-slate-400 hover:text-slate-200'
+          }\`}
+        >
+          Clima (Open-Meteo)
+        </button>
+        <button
+          onClick={() => setActiveTab('crypto')}
+          className={\`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition \${
+            activeTab === 'crypto'
+              ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30'
+              : 'text-slate-400 hover:text-slate-200'
+          }\`}
+        >
+          Cripto (CoinGecko)
+        </button>
+        <button
+          onClick={() => setActiveTab('quotes')}
+          className={\`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition \${
+            activeTab === 'quotes'
+              ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30'
+              : 'text-slate-400 hover:text-slate-200'
+          }\`}
+        >
+          Inspiração (DummyJSON)
+        </button>
+      </div>
+
+      {/* Main Content Area */}
+      <main className="max-w-md w-full bg-slate-900/90 border border-slate-800/80 rounded-2xl p-6 shadow-2xl backdrop-blur">
+        {loading && (
+          <div className="py-12 flex flex-col items-center justify-center gap-3">
+            <div className="w-8 h-8 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-slate-400 text-sm">Carregando dados da API pública...</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-4 rounded-xl text-sm mb-4">
+            <p className="font-semibold">Erro na chamada da API</p>
+            <p className="text-xs mt-1 text-red-300">{error}</p>
+            <button
+              onClick={() => {
+                if (activeTab === 'weather') fetchWeather()
+                if (activeTab === 'crypto') fetchCrypto()
+                if (activeTab === 'quotes') fetchQuote()
+              }}
+              className="mt-3 px-3 py-1 bg-red-600/80 hover:bg-red-600 text-white text-xs rounded-lg font-medium transition"
+            >
+              Tentar novamente
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && activeTab === 'weather' && weather && (
+          <div className="flex flex-col gap-4 text-center">
+            <span className="text-xs uppercase tracking-wider text-slate-400">Previsão em Tempo Real</span>
+            <div className="text-6xl font-black text-cyan-400">{weather.temperature}°C</div>
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50">
+                <span className="text-xs text-slate-400 block">Vento</span>
+                <span className="text-lg font-bold text-slate-200">{weather.windspeed} km/h</span>
+              </div>
+              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50">
+                <span className="text-xs text-slate-400 block">Condição</span>
+                <span className="text-lg font-bold text-slate-200">
+                  {weather.weathercode === 0 ? 'Céu Limpo' : 'Parcialmente Nublado'}
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={fetchWeather}
+              className="mt-2 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm rounded-xl font-medium transition"
+            >
+              Atualizar Clima
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && activeTab === 'crypto' && cryptoPrices && (
+          <div className="flex flex-col gap-3">
+            <span className="text-xs uppercase tracking-wider text-slate-400 text-center mb-1">
+              Mercado Cripto em Tempo Real
+            </span>
+            {Object.entries(cryptoPrices).map(([id, info]) => (
+              <div
+                key={id}
+                className="flex items-center justify-between p-3.5 bg-slate-800/60 rounded-xl border border-slate-700/50"
+              >
+                <div>
+                  <span className="font-bold text-slate-200 uppercase">{id}</span>
+                  <span className="block text-xs text-slate-400">USD</span>
+                </div>
+                <div className="text-right">
+                  <span className="font-bold text-slate-100 block">
+                    \${info.usd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </span>
+                  <span
+                    className={\`text-xs font-semibold \${
+                      info.usd_24h_change >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    }\`}
+                  >
+                    {info.usd_24h_change >= 0 ? '+' : ''}
+                    {info.usd_24h_change?.toFixed(2)}%
+                  </span>
+                </div>
+              </div>
+            ))}
+            <button
+              onClick={fetchCrypto}
+              className="mt-2 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm rounded-xl font-medium transition"
+            >
+              Atualizar Cotações
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && activeTab === 'quotes' && quote && (
+          <div className="flex flex-col gap-4 text-center">
+            <span className="text-xs uppercase tracking-wider text-slate-400">Pensamento do Dia</span>
+            <blockquote className="text-lg font-medium italic text-slate-200 leading-relaxed">
+              "{quote.quote}"
+            </blockquote>
+            <span className="text-sm font-semibold text-cyan-400">— {quote.author}</span>
+            <button
+              onClick={fetchQuote}
+              className="mt-3 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm rounded-xl font-medium transition"
+            >
+              Nova Citação
+            </button>
+          </div>
+        )}
+      </main>
+
+      <footer className="mt-8 text-xs text-slate-500 text-center">
+        OpenCode Web • React + Vite Autonomous Runtime
+      </footer>
+    </div>
+  )
+}
+`,
+        'utf-8',
+      )
+    }
+
+    // 4. Stylesheet: src/index.css
+    const cssPath = path.join(dir, 'src', 'index.css')
+    try {
+      await fs.access(cssPath)
+    } catch {
+      await fs.writeFile(
+        cssPath,
+        `body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #020617;
+  color: #f8fafc;
+}
+`,
+        'utf-8',
+      )
+    }
+
+    // 5. Vite Config: vite.config.ts
+    const viteConfigPath = path.join(dir, 'vite.config.ts')
+    try {
+      await fs.access(viteConfigPath)
+    } catch {
+      await fs.writeFile(
+        viteConfigPath,
+        `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 3000,
+    host: '0.0.0.0',
+  },
+})
+`,
+        'utf-8',
+      )
+    }
+
+    // 6. Package JSON: package.json
     const pkgPath = path.join(dir, 'package.json')
     try {
       await fs.access(pkgPath)
@@ -160,16 +442,40 @@ export async function ensureSessionWorkspaceExists(sessionId: string): Promise<s
           {
             name: `session-${sessionId.slice(0, 10)}`,
             version: '1.0.0',
-            description: 'Session isolated project workspace',
-            main: 'src/index.ts',
+            private: true,
+            type: 'module',
             scripts: {
-              build: "echo 'Build OK'",
-              test: "echo 'Tests OK'",
+              dev: 'vite',
+              build: 'tsc && vite build',
+              preview: 'vite preview',
+            },
+            dependencies: {
+              react: '^19.0.0',
+              'react-dom': '^19.0.0',
+              'lucide-react': '^0.469.0',
+            },
+            devDependencies: {
+              '@types/react': '^19.0.8',
+              '@types/react-dom': '^19.0.3',
+              '@vitejs/plugin-react': '^6.0.1',
+              typescript: '^5.7.2',
+              vite: '^8.0.14',
             },
           },
           null,
           2,
         ),
+        'utf-8',
+      )
+    }
+
+    const readmePath = path.join(dir, 'README.md')
+    try {
+      await fs.access(readmePath)
+    } catch {
+      await fs.writeFile(
+        readmePath,
+        `# Session React + Vite Development Environment\n\nSession ID: ${sessionId}\nThis workspace contains a pure React + Vite application connected to live Public APIs.\n`,
         'utf-8',
       )
     }
@@ -246,10 +552,16 @@ export async function applyCodeBlocksToWorkspace(
     if (!filePath) {
       if (lang === 'html' || content.includes('<!DOCTYPE html>') || content.includes('<html')) {
         filePath = 'index.html'
-      } else if (lang === 'css' && !createdFiles.includes('styles.css') && (content.includes('{') || content.includes('@import'))) {
-        filePath = 'styles.css'
-      } else if ((lang === 'javascript' || lang === 'js') && !createdFiles.includes('app.js') && (content.includes('function') || content.includes('document.') || content.includes('const '))) {
-        filePath = 'app.js'
+      } else if (lang === 'css' || content.includes('@tailwind')) {
+        filePath = 'src/index.css'
+      } else if (content.includes('createRoot') || content.includes("getElementById('root')") || content.includes('getElementById("root")')) {
+        filePath = 'src/main.tsx'
+      } else if (content.includes('export default') || content.includes('function App') || content.includes('const App =') || lang === 'tsx' || lang === 'jsx') {
+        filePath = 'src/App.tsx'
+      } else if (content.includes('defineConfig') && content.includes('react()')) {
+        filePath = 'vite.config.ts'
+      } else if (lang === 'javascript' || lang === 'js' || lang === 'ts') {
+        filePath = 'src/App.tsx'
       }
     }
 
@@ -1256,8 +1568,27 @@ let memoryData: StoredData = {
 
 let storageLoaded = false
 
-async function loadStorage(): Promise<StoredData> {
-  if (storageLoaded) return memoryData
+async function loadStorage(userId?: string): Promise<StoredData> {
+  if (storageLoaded) {
+    if (userId && userId !== 'guest-user') {
+      try {
+        const userCloudSessions = await loadSessionsFromFirestore(userId)
+        if (userCloudSessions && userCloudSessions.length > 0) {
+          for (const cs of userCloudSessions) {
+            const existingIdx = memoryData.sessions.findIndex((s) => s.id === cs.id)
+            if (existingIdx >= 0) {
+              if ((cs.time?.updated || 0) > (memoryData.sessions[existingIdx].time?.updated || 0)) {
+                memoryData.sessions[existingIdx] = cs
+              }
+            } else {
+              memoryData.sessions.push(cs)
+            }
+          }
+        }
+      } catch {}
+    }
+    return memoryData
+  }
   try {
     const raw = await fs.readFile(STORAGE_FILE, 'utf-8')
     const parsed = JSON.parse(raw)
@@ -1304,7 +1635,7 @@ async function loadStorage(): Promise<StoredData> {
 
   // Synchronize with persistent cloud Firestore database
   try {
-    const cloudSessions = await loadSessionsFromFirestore()
+    const cloudSessions = await loadSessionsFromFirestore(userId)
     if (cloudSessions && cloudSessions.length > 0) {
       for (const cs of cloudSessions) {
         if (!cs.location?.directory || cs.location.directory === process.cwd()) {
@@ -1344,7 +1675,9 @@ export async function handleGeminiServiceRequest(
   urlPath: string,
   init?: RequestInit,
 ): Promise<Response> {
-  await loadStorage()
+  const reqHeaders = new Headers(init?.headers)
+  const currentUserId = reqHeaders.get('x-user-id') || 'guest-user'
+  await loadStorage(currentUserId)
   const method = (init?.method || 'GET').toUpperCase()
   const parsed = new URL(urlPath, 'http://service.local')
   const pathname = parsed.pathname
@@ -1489,10 +1822,13 @@ export async function handleGeminiServiceRequest(
     return Response.json({ data: active })
   }
 
-  // 13. Sessions List: GET /api/session
+  // 13. Sessions List: GET /api/session (Isolated per authenticated user)
   if (pathname === '/api/session' && method === 'GET') {
     const directory = query.get('directory')
     let list = [...memoryData.sessions]
+    if (currentUserId && currentUserId !== 'guest-user') {
+      list = list.filter((s) => (s as any).userId === currentUserId || !(s as any).userId)
+    }
     if (directory) {
       list = list.filter((s) => s.location?.directory === directory)
     }
@@ -1514,7 +1850,7 @@ export async function handleGeminiServiceRequest(
     })
   }
 
-  // 14. Create Session: POST /api/session
+  // 14. Create Session: POST /api/session (Tied to current user ID)
   if (pathname === '/api/session' && method === 'POST') {
     const body = init?.body ? JSON.parse(typeof init.body === 'string' ? init.body : new TextDecoder().decode(init.body as ArrayBuffer)) : {}
     const sessionID = body.id || `ses_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
@@ -1536,11 +1872,12 @@ export async function handleGeminiServiceRequest(
       agent: body.agent || 'build',
       model: body.model || { providerID: 'google', id: 'gemini-3.1-flash-lite' },
     }
+    ;(session as any).userId = currentUserId
 
     memoryData.sessions.unshift(session)
     memoryData.messages[sessionID] = []
     await saveStorage()
-    void persistSessionToFirestore(session)
+    void persistSessionToFirestore(session, currentUserId)
 
     broadcastEvent({
       type: 'session.created',
@@ -1798,7 +2135,24 @@ export async function handleGeminiServiceRequest(
         await fs.access(targetPath)
         found = true
       } catch {
-        if (relPath === 'index.html' || !relPath) {
+        // Try resolving module extensions: .tsx, .ts, .jsx, .js, /index.tsx
+        for (const candidate of [
+          `${targetPath}.tsx`,
+          `${targetPath}.ts`,
+          `${targetPath}.jsx`,
+          `${targetPath}.js`,
+          path.resolve(targetPath, 'index.tsx'),
+          path.resolve(targetPath, 'index.ts'),
+        ]) {
+          try {
+            await fs.access(candidate)
+            targetPath = candidate
+            found = true
+            break
+          } catch {}
+        }
+
+        if (!found && (relPath === 'index.html' || !relPath)) {
           for (const candidate of ['index.html', 'src/index.html', 'public/index.html', 'index.htm', 'main.html']) {
             const alt = path.resolve(wsDir, candidate)
             try {
@@ -1815,6 +2169,76 @@ export async function handleGeminiServiceRequest(
         try {
           let content = await fs.readFile(targetPath)
           const ext = path.extname(targetPath).toLowerCase()
+
+          // Real-time React + Vite TSX/JSX Transpiler
+          if (ext === '.tsx' || ext === '.jsx' || ext === '.ts') {
+            const rawText = content.toString('utf-8')
+            try {
+              const transpiled = ts.transpileModule(rawText, {
+                compilerOptions: {
+                  target: ts.ScriptTarget.ES2022,
+                  module: ts.ModuleKind.ESNext,
+                  jsx: ts.JsxEmit.ReactJSX,
+                  jsxImportSource: 'react',
+                  moduleResolution: ts.ModuleResolutionKind.Bundler,
+                  allowJs: true,
+                },
+                fileName: targetPath,
+              })
+
+              let js = transpiled.outputText
+
+              // Resolve relative imports without explicit extensions (e.g. from './App' -> from './App.tsx')
+              js = js.replace(/from\s+['"](\.[^'"]+)['"]/g, (match, imp) => {
+                if (
+                  !imp.endsWith('.js') &&
+                  !imp.endsWith('.ts') &&
+                  !imp.endsWith('.tsx') &&
+                  !imp.endsWith('.jsx') &&
+                  !imp.endsWith('.css') &&
+                  !imp.endsWith('.json')
+                ) {
+                  return `from '${imp}.tsx'`
+                }
+                return match
+              })
+
+              // Map unmapped npm modules to esm.sh CDN so public libraries load effortlessly
+              js = js.replace(/from\s+['"]([a-zA-Z0-9@][^'"]*)['"]/g, (match, pkg) => {
+                if (pkg.startsWith('http://') || pkg.startsWith('https://')) return match
+                const standardMap = [
+                  'react',
+                  'react-dom',
+                  'react/jsx-runtime',
+                  'react/jsx-dev-runtime',
+                  'react-dom/client',
+                  'lucide-react',
+                  'canvas-confetti',
+                  'clsx',
+                  'tailwind-merge',
+                ]
+                if (standardMap.includes(pkg) || pkg.startsWith('react/') || pkg.startsWith('react-dom/')) {
+                  return match
+                }
+                return `from 'https://esm.sh/${pkg}'`
+              })
+
+              return new Response(js, {
+                headers: {
+                  'content-type': 'application/javascript; charset=utf-8',
+                  'x-frame-options': 'SAMEORIGIN',
+                  'cache-control': 'no-cache',
+                  'access-control-allow-origin': '*',
+                },
+              })
+            } catch (transpileErr: any) {
+              const errJs = `console.error("Transpilation error in ${relPath}:", ${JSON.stringify(transpileErr.message)});`
+              return new Response(errJs, {
+                headers: { 'content-type': 'application/javascript; charset=utf-8' },
+              })
+            }
+          }
+
           const mimeTypes: Record<string, string> = {
             '.html': 'text/html; charset=utf-8',
             '.htm': 'text/html; charset=utf-8',
@@ -1834,11 +2258,48 @@ export async function handleGeminiServiceRequest(
           if (ext === '.html' || ext === '.htm') {
             let htmlStr = content.toString('utf-8')
             const baseTag = `<base href="/api/proxy/api/session/${encodeURIComponent(sessionID)}/preview/">`
+            const importMap = `
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@19?dev",
+    "react/": "https://esm.sh/react@19/",
+    "react/jsx-runtime": "https://esm.sh/react@19/jsx-runtime?dev",
+    "react/jsx-dev-runtime": "https://esm.sh/react@19/jsx-dev-runtime?dev",
+    "react-dom": "https://esm.sh/react-dom@19?dev",
+    "react-dom/": "https://esm.sh/react-dom@19/",
+    "react-dom/client": "https://esm.sh/react-dom@19/client?dev",
+    "lucide-react": "https://esm.sh/lucide-react@0.469.0",
+    "canvas-confetti": "https://esm.sh/canvas-confetti@1.9.4",
+    "clsx": "https://esm.sh/clsx@2.1.1",
+    "tailwind-merge": "https://esm.sh/tailwind-merge@2.6.0"
+  }
+}
+</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  window.__vite_plugin_react_preamble_installed__ = true;
+  window.addEventListener('error', function(e) {
+    console.error('[Vite Runtime Preview Error]:', e.error || e.message);
+    var box = document.getElementById('runtime-error-toast');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'runtime-error-toast';
+      box.style = 'position:fixed;bottom:16px;left:16px;right:16px;background:rgba(239,68,68,0.95);color:#fff;padding:12px 16px;border-radius:12px;font-family:monospace;font-size:12px;z-index:999999;box-shadow:0 10px 25px rgba(0,0,0,0.5);display:flex;justify-content:space-between;align-items:center;backdrop-filter:blur(8px);';
+      document.body.appendChild(box);
+    }
+    box.innerHTML = '<div><strong>Preview Error:</strong> ' + (e.message || 'Check browser console') + '</div><button onclick="this.parentElement.remove()" style="background:#fff;color:#ef4444;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-weight:bold;margin-left:12px;">✕</button>';
+  });
+</script>
+`
             if (!htmlStr.includes('<base ') && htmlStr.includes('<head>')) {
-              htmlStr = htmlStr.replace('<head>', `<head>\n  ${baseTag}`)
+              htmlStr = htmlStr.replace('<head>', `<head>\n  ${baseTag}\n${importMap}`)
               content = Buffer.from(htmlStr, 'utf-8')
             } else if (!htmlStr.includes('<base ') && /<head[^>]*>/i.test(htmlStr)) {
-              htmlStr = htmlStr.replace(/<head[^>]*>/i, (m) => `${m}\n  ${baseTag}`)
+              htmlStr = htmlStr.replace(/<head[^>]*>/i, (m) => `${m}\n  ${baseTag}\n${importMap}`)
+              content = Buffer.from(htmlStr, 'utf-8')
+            } else if (!htmlStr.includes('<base ')) {
+              htmlStr = `<head>${baseTag}\n${importMap}</head>\n${htmlStr}`
               content = Buffer.from(htmlStr, 'utf-8')
             }
           }
@@ -2393,11 +2854,21 @@ You are a world-class autonomous AI software engineer, researcher, and architect
 WORKSPACE DIRECTORY: ${workspaceRoot}
 
 CRITICAL MANDATORY INSTRUCTIONS — REAL EXECUTION ONLY, NO MOCKS OR FALSE CLAIMS:
-1. MANDATORY REAL FILE CREATION (NEVER CLAIM IN CHAT WITHOUT TOOL CALL):
-   - You MUST NEVER state or claim in chat that you created or updated a file unless you have EXPLICITLY invoked the \`write_workspace_file\` tool during this turn!
-   - Writing code blocks into your markdown response DOES NOT write files to disk. You MUST execute the \`write_workspace_file\` function call to write each file.
-   - For every web application, website, component, or UI requested by the user, ALWAYS write a complete, beautiful, and fully functional \`index.html\` at the root of your workspace (${workspaceRoot}/index.html). If separate files are needed, also write \`styles.css\` and \`app.js\`.
-   - The user's Live Preview renders this \`index.html\` live. It must be 100% functional, interactive, and visually stunning.
+1. O AGENTE DEVE CRIAR WEB APPS E SITES EXCLUSIVAMENTE EM REACT + VITE COM PREVIEW FUNCIONAL COM APIS PÚBLICAS:
+   - VOCÊ DEVE CRIAR APENAS EM REACT + VITE. Não crie apps em HTML/JS puro ou jQuery.
+   - Todo projeto deve ter a estrutura padrão React + Vite no seu workspace (${workspaceRoot}):
+     * \`index.html\`: Entrada Vite contendo \`<div id="root"></div>\` e \`<script type="module" src="/src/main.tsx"></script>\`.
+     * \`src/main.tsx\`: Arquivo de montagem React \`createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)\`.
+     * \`src/App.tsx\`: Componente principal completo e funcional em React com hooks (\`useState\`, \`useEffect\`, etc.) e design moderno em Tailwind CSS.
+     * \`src/index.css\`: Estilos do Tailwind CSS.
+     * \`src/components/...\`: Componentes modulares reutilizáveis para organizar a interface.
+     * \`vite.config.ts\`: Configuração Vite com \`plugins: [react()]\`.
+     * \`package.json\`: Dependências do React 19 e Vite.
+   - O PREVIEW DE RUNTIME É 100% FUNCIONAL E COMPILA AUTOMATICAMENTE SEU CÓDIGO REACT + VITE NO NAVEGADOR!
+   - PREVIEW FUNCIONAL COM UMA OU VÁRIAS APIS PÚBLICAS:
+     * Todo web app ou site que você criar DEVE ser funcional e integrar uma ou mais APIs Públicas reais (ex.: Previsão do tempo Open-Meteo, Cotações de cripto CoinGecko, PokeAPI, REST Countries, Cat/Dog facts, DummyJSON produtos/loja, Quotes do Quotable, Notícias da HackerNews, Dados espaciais da NASA APOD, Taxas de câmbio Frankfurter, etc.).
+     * Use chamadas HTTP reais (\`fetch\`), trate estados de carregamento (spinner/esqueleto), erros com botão de tentar novamente, e controles interativos (busca, filtros por categoria, botões de atualização em tempo real).
+   - MANDATÓRIO: Crie ou atualize os arquivos usando explicitamente a ferramenta \`write_workspace_file\`! Escrever apenas blocos de código no markdown NÃO cria os arquivos no disco. Você DEVE invocar \`write_workspace_file\` para cada arquivo (\`src/App.tsx\`, \`src/main.tsx\`, \`index.html\`, etc.).
 
 2. REGRAS OBRIGATÓRIAS SOBRE SUBAGENTES (CHAMADA APENAS QUANDO PRECISAR DE AJUDA):
    - VOCÊ DEVE CRIAR OU CHAMAR UM SUBAGENTE OU SUBAGENTES PARA UMA TAREFA ESPECÍFICA APENAS QUANDO VOCÊ REALMENTE PRECISAR DE AJUDA, E NUNCA EM QUALQUER SITUAÇÃO.
@@ -2767,9 +3238,9 @@ CRITICAL MANDATORY INSTRUCTIONS — REAL EXECUTION ONLY, NO MOCKS OR FALSE CLAIM
     assistantMsg.time.completed = Date.now()
     assistantMsg.finish = 'stop'
 
-    await saveStorage()
-    void persistSessionToFirestore(session)
-    void persistMessageToFirestore(sessionID, assistantMsg)
+    const sessionOwnerId = (session as any)?.userId || 'guest-user'
+    void persistSessionToFirestore(session, sessionOwnerId)
+    void persistMessageToFirestore(sessionID, assistantMsg, sessionOwnerId)
 
     broadcastEvent({
       type: 'session.text.ended',

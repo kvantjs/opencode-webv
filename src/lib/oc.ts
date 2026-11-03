@@ -54,7 +54,19 @@ const apiFactory = createIsomorphicFn()
     })
   })
   .client(async () =>
-    OpenCode.make({ baseUrl: `${window.location.origin}/api/proxy` }),
+    OpenCode.make({
+      baseUrl: `${window.location.origin}/api/proxy`,
+      fetch: (input, init) => {
+        const headers = new Headers(init?.headers)
+        if (typeof window !== 'undefined') {
+          const uid = window.localStorage.getItem('oc-user-id')
+          if (uid) headers.set('x-user-id', uid)
+          const token = window.localStorage.getItem('oc-user-token')
+          if (token) headers.set('authorization', `Bearer ${token}`)
+        }
+        return fetch(input, { ...init, headers })
+      },
+    }),
   )
 
 export const client = () => apiFactory()

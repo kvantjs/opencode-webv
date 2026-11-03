@@ -8,6 +8,7 @@ import {
   collection,
   deleteDoc,
   query,
+  where,
   orderBy,
   limit,
 } from 'firebase/firestore'
@@ -48,16 +49,20 @@ function getFirestoreInstance() {
   }
 }
 
-export async function persistSessionToFirestore(session: SessionInfo): Promise<void> {
+export async function persistSessionToFirestore(
+  session: SessionInfo,
+  userId?: string,
+): Promise<void> {
   const db = getFirestoreInstance()
   if (!db) return
+  const ownerId = userId || (session as any).userId || 'guest-user'
   try {
     const sessionDocRef = doc(db, 'sessions', session.id)
     await setDoc(
       sessionDocRef,
       {
         id: session.id,
-        userId: 'web-user',
+        userId: ownerId,
         title: session.title || 'Session',
         agentMode: session.agent || 'unified',
         model: session.model?.id || 'gemini-3.8-flash',
@@ -65,7 +70,7 @@ export async function persistSessionToFirestore(session: SessionInfo): Promise<v
         status: 'active',
         createdAt: session.time?.created || Date.now(),
         updatedAt: session.time?.updated || Date.now(),
-        rawData: JSON.stringify(session),
+        rawData: JSON.stringify({ ...session, userId: ownerId }),
       },
       { merge: true },
     )
@@ -77,9 +82,11 @@ export async function persistSessionToFirestore(session: SessionInfo): Promise<v
 export async function persistMessageToFirestore(
   sessionId: string,
   message: SessionMessageInfo,
+  userId?: string,
 ): Promise<void> {
   const db = getFirestoreInstance()
   if (!db) return
+  const ownerId = userId || (message as any).userId || 'guest-user'
   try {
     const msgDocRef = doc(db, 'sessions', sessionId, 'messages', message.id)
     const textContent =
@@ -98,20 +105,20 @@ export async function persistMessageToFirestore(
             .filter((c: any) => c.type === 'reasoning')
             .map((c: any) => c.text)
             .join('\n')
-        : ''
+          : ''
 
     await setDoc(
       msgDocRef,
       {
         id: message.id,
         sessionId,
-        userId: 'web-user',
+        userId: ownerId,
         role: message.type === 'user' ? 'user' : 'assistant',
         content: textContent,
         thoughts: thoughts || null,
         status: 'status' in message ? message.status : 'completed',
         createdAt: message.time?.created || Date.now(),
-        rawMessage: JSON.stringify(message),
+        rawMessage: JSON.stringify({ ...message, userId: ownerId }),
       },
       { merge: true },
     )
@@ -131,19 +138,27 @@ export async function deleteSessionFromFirestore(sessionId: string): Promise<voi
   }
 }
 
-export async function loadSessionsFromFirestore(): Promise<SessionInfo[] | null> {
+export async function loadSessionsFromFirestore(userId?: string): Promise<SessionInfo[] | null> {
   const db = getFirestoreInstance()
   if (!db) return null
   try {
     const sessionsCol = collection(db, 'sessions')
-    const q = query(sessionsCol, orderBy('updatedAt', 'desc'), limit(100))
+    let q
+    if (userId) {
+      q = query(sessionsCol, where('userId', '==', userId), orderBy('updatedAt', 'desc'), limit(100))
+    } else {
+      q = query(sessionsCol, orderBy('updatedAt', 'desc'), limit(100))
+    }
     const snapshot = await getDocs(q)
     const sessions: SessionInfo[] = []
     snapshot.forEach((d) => {
       const data = d.data()
       if (data.rawData) {
         try {
-          sessions.push(JSON.parse(data.rawData))
+          const parsed = JSON.parse(data.rawData)
+          if (!userId || data.userId === userId) {
+            sessions.push(parsed)
+          }
         } catch {
           // fallback
         }

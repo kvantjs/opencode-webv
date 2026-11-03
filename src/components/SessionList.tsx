@@ -23,6 +23,7 @@ import {
 } from './icons'
 import styles from './SessionList.module.css'
 import { OpenProjectSheet } from './OpenProjectSheet'
+import { AuthCard } from './AuthCard'
 
 const COLLAPSE_KEY = 'oc-collapsed-projects'
 
@@ -91,6 +92,9 @@ export function SessionListPanel({ onNavigate }: { onNavigate?: () => void }) {
         <img src="https://imgdb.io/i/d6PWxbc.png" alt="Kvant Logo" className={styles.logo} />
         <span className={styles.wordmark}>Kvant</span>
       </header>
+
+      {/* Persistent User Authentication Card */}
+      <AuthCard />
 
       <Link to="/" className={styles.newSession} onClick={onNavigate}>
         <PlusIcon size={18} />

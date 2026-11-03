@@ -23,6 +23,7 @@ import {
 } from '~/lib/oc'
 import appCss from '~/styles/app.css?url'
 import { startupSession } from '~/lib/startup'
+import { AuthProvider } from '~/lib/auth-context'
 
 const themeInitScript = `
 try {
@@ -115,9 +116,11 @@ function RootComponent() {
   }, [location, navigate, queryClient])
   return (
     <RootDocument>
-      <AppShell>
-        <Outlet />
-      </AppShell>
+      <AuthProvider>
+        <AppShell>
+          <Outlet />
+        </AppShell>
+      </AuthProvider>
     </RootDocument>
   )
 }

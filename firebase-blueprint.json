@@ -7,31 +7,38 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique session identifier"
+          "description": "Unique session identifier",
+          "maxLength": 128
         },
         "userId": {
           "type": "string",
-          "description": "User UID who owns this session"
+          "description": "User UID who owns this session",
+          "maxLength": 128
         },
         "title": {
           "type": "string",
-          "description": "Session title"
+          "description": "Session title",
+          "maxLength": 500
         },
         "agentMode": {
           "type": "string",
-          "description": "Mode of the agent (unified, build, chat, review)"
+          "description": "Mode of the agent (unified, build, chat, review)",
+          "maxLength": 64
         },
         "model": {
           "type": "string",
-          "description": "Gemini model selected"
+          "description": "Gemini model selected",
+          "maxLength": 64
         },
         "directory": {
           "type": "string",
-          "description": "Target workspace directory or project context"
+          "description": "Target workspace directory or project context",
+          "maxLength": 512
         },
         "status": {
           "type": "string",
-          "description": "Session status (idle, thinking, executing, completed, error)"
+          "description": "Session status (active, idle, thinking, completed, error)",
+          "maxLength": 32
         },
         "createdAt": {
           "type": "number",
@@ -40,6 +47,10 @@
         "updatedAt": {
           "type": "number",
           "description": "Timestamp updated"
+        },
+        "rawData": {
+          "type": "string",
+          "description": "Serialized session payload"
         }
       },
       "required": ["id", "userId", "title", "createdAt", "updatedAt"]
@@ -51,19 +62,23 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique message identifier"
+          "description": "Unique message identifier",
+          "maxLength": 128
         },
         "sessionId": {
           "type": "string",
-          "description": "Parent session identifier"
+          "description": "Parent session identifier",
+          "maxLength": 128
         },
         "userId": {
           "type": "string",
-          "description": "User UID who sent or initiated this message"
+          "description": "User UID who sent or initiated this message",
+          "maxLength": 128
         },
         "role": {
           "type": "string",
-          "description": "Role of the message sender (user, assistant, system)"
+          "description": "Role of the message sender (user, assistant, system)",
+          "enum": ["user", "assistant", "system"]
         },
         "content": {
           "type": "string",
@@ -75,11 +90,16 @@
         },
         "status": {
           "type": "string",
-          "description": "Status of the message"
+          "description": "Status of the message",
+          "maxLength": 32
         },
         "createdAt": {
           "type": "number",
           "description": "Timestamp created"
+        },
+        "rawMessage": {
+          "type": "string",
+          "description": "Serialized full message payload"
         }
       },
       "required": ["id", "sessionId", "userId", "role", "createdAt"]
@@ -91,19 +111,23 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique project identifier"
+          "description": "Unique project identifier",
+          "maxLength": 128
         },
         "userId": {
           "type": "string",
-          "description": "User UID who owns this project"
+          "description": "User UID who owns this project",
+          "maxLength": 128
         },
         "name": {
           "type": "string",
-          "description": "Project name"
+          "description": "Project name",
+          "maxLength": 200
         },
         "directory": {
           "type": "string",
-          "description": "Project directory"
+          "description": "Project directory",
+          "maxLength": 512
         },
         "createdAt": {
           "type": "number",
@@ -115,6 +139,47 @@
         }
       },
       "required": ["id", "userId", "name", "createdAt", "updatedAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user profile and sync settings",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "User UID",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "description": "User UID matching auth.uid",
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address",
+          "maxLength": 256
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name",
+          "maxLength": 128
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "User avatar URL",
+          "maxLength": 1024
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Registration timestamp"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Last profile update timestamp"
+        }
+      },
+      "required": ["id", "userId", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -129,6 +194,10 @@
     "/projects/{projectId}": {
       "schema": "Project",
       "description": "Collection of projects registered by users"
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Private user profiles containing account and sync metadata"
     }
   }
 }

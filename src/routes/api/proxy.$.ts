@@ -29,7 +29,7 @@ async function proxy({
   if (!path.startsWith('/api/')) return new Response('Not found', { status: 404 })
 
   const headers = new Headers()
-  for (const name of ['content-type', 'accept', 'last-event-id']) {
+  for (const name of ['content-type', 'accept', 'last-event-id', 'authorization', 'x-user-id']) {
     const value = request.headers.get(name)
     if (value) headers.set(name, value)
   }
