@@ -1,24 +1,24 @@
 {
   "projects": [
     {
-      "id": "opencode-web",
-      "name": "opencode-web",
-      "canonical": "/app/applet",
+      "id": "agent-dev-workspace",
+      "name": "Agent Dev Workspace",
+      "canonical": "/app/applet/agent-workspace",
       "sandboxes": [],
       "time": {
-        "created": 1793414823549,
-        "updated": 1793414823549,
-        "active": 1793414823549
+        "created": 1793733443913,
+        "updated": 1793733443913,
+        "active": 1793733443913
       }
     }
   ],
   "sessions": [
     {
       "id": "ses_1793418110753_w3di4",
-      "projectID": "opencode-web",
+      "projectID": "agent-dev-workspace",
       "title": "Check workspace status and summarize.",
       "location": {
-        "directory": "/app/applet"
+        "directory": "/app/applet/agent-workspace"
       },
       "cost": 0,
       "tokens": {
@@ -42,10 +42,10 @@
     },
     {
       "id": "ses_1793414842037_g240f",
-      "projectID": "opencode-web",
+      "projectID": "agent-dev-workspace",
       "title": "Test Session",
       "location": {
-        "directory": "/app/applet"
+        "directory": "/app/applet/agent-workspace"
       },
       "cost": 0,
       "tokens": {

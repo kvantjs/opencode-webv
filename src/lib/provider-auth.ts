@@ -5,8 +5,8 @@ export type ConnectMethod = Extract<
   { type: 'key' | 'oauth' | 'external' }
 >
 export const popularProviders = [
-  'opencode',
-  'opencode-go',
+  'Kvant',
+  'Kvant-go',
   'anthropic',
   'openai',
   'github-copilot',

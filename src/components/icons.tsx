@@ -1,231 +1,106 @@
 import * as React from 'react'
+import {
+  IconMenu2,
+  IconPlus,
+  IconArrowUp,
+  IconArrowLeft,
+  IconChevronDown,
+  IconChevronRight,
+  IconSettings,
+  IconX,
+  IconSquare,
+  IconFolder,
+  IconFile,
+  IconSearch,
+  IconRefresh,
+  IconCheck,
+  IconCopy,
+  IconTrash,
+  IconEye,
+  IconCode,
+  IconTerminal,
+  IconCpu,
+  IconRobot,
+  IconDotsVertical,
+  IconMessage,
+  IconClock,
+  IconSparkles,
+  IconDeviceDesktop,
+  IconDeviceTablet,
+  IconDeviceMobile,
+  IconExternalLink,
+  IconAlertCircle,
+  IconChecklist,
+  IconWand,
+  IconShieldCheck,
+  IconGitPullRequest,
+  IconBook,
+  IconCompass,
+  IconNetwork,
+  IconSend,
+  IconPaperclip,
+  IconGitFork,
+  IconGitBranch,
+  IconPencil,
+  IconListDetails,
+  IconFileDiff,
+  IconRotate,
+  IconDownload,
+  IconBrain,
+  IconMaximize,
+  IconPlayerPlay,
+} from '@tabler/icons-react'
 
 interface IconProps extends React.SVGProps<SVGSVGElement> {
   size?: number
 }
 
-function Icon({
-  size = 20,
-  children,
-  ...props
-}: IconProps & { children: React.ReactNode }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      {...props}
-    >
-      {children}
-    </svg>
-  )
-}
-
-export const MenuIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <line x1="4" y1="7" x2="20" y2="7" />
-    <line x1="4" y1="12" x2="14" y2="12" />
-    <line x1="4" y1="17" x2="18" y2="17" />
-  </Icon>
-)
-
-export const PlusIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <line x1="12" y1="5" x2="12" y2="19" />
-    <line x1="5" y1="12" x2="19" y2="12" />
-  </Icon>
-)
-
-export const ArrowUpIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <line x1="12" y1="19" x2="12" y2="5" />
-    <polyline points="5 12 12 5 19 12" />
-  </Icon>
-)
-
-export const ArrowLeftIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <line x1="19" y1="12" x2="5" y2="12" />
-    <polyline points="12 19 5 12 12 5" />
-  </Icon>
-)
-
-export const ChevronDownIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <polyline points="6 9 12 15 18 9" />
-  </Icon>
-)
-
-export const ChevronRightIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <polyline points="9 6 15 12 9 18" />
-  </Icon>
-)
-
-export const GearIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <circle cx="12" cy="12" r="3" />
-    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-  </Icon>
-)
-
-export const XIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <line x1="18" y1="6" x2="6" y2="18" />
-    <line x1="6" y1="6" x2="18" y2="18" />
-  </Icon>
-)
-
-export const StopIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
-  </Icon>
-)
-
-export const FolderIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-  </Icon>
-)
-
-export const FileIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-  </Icon>
-)
-
-export const DiffIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <circle cx="6" cy="6" r="2" />
-    <circle cx="18" cy="6" r="2" />
-    <circle cx="6" cy="18" r="2" />
-    <path d="M6 8v8" />
-    <path d="M18 8v3a4 4 0 0 1-4 4H9" />
-    <polyline points="11 12 8 15 11 18" />
-  </Icon>
-)
-
-export const ExpandLinesIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <line x1="5" y1="12" x2="19" y2="12" />
-    <polyline points="8 8 12 4 16 8" />
-    <polyline points="8 16 12 20 16 16" />
-  </Icon>
-)
-
-export const CheckIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <polyline points="20 6 9 17 4 12" />
-  </Icon>
-)
-
-export const DotsIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none" />
-    <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
-    <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" />
-  </Icon>
-)
-
-export const SearchIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <circle cx="11" cy="11" r="7" />
-    <line x1="21" y1="21" x2="16.5" y2="16.5" />
-  </Icon>
-)
-
-export const PencilIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <path d="M17 3a2.83 2.83 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z" />
-  </Icon>
-)
-
-export const TrashIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <polyline points="3 6 5 6 21 6" />
-    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-  </Icon>
-)
-
-export const ChipIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <rect x="6" y="6" width="12" height="12" rx="2" />
-    <rect x="10" y="10" width="4" height="4" />
-    <line x1="9" y1="2" x2="9" y2="6" />
-    <line x1="15" y1="2" x2="15" y2="6" />
-    <line x1="9" y1="18" x2="9" y2="22" />
-    <line x1="15" y1="18" x2="15" y2="22" />
-    <line x1="2" y1="9" x2="6" y2="9" />
-    <line x1="2" y1="15" x2="6" y2="15" />
-    <line x1="18" y1="9" x2="22" y2="9" />
-    <line x1="18" y1="15" x2="22" y2="15" />
-  </Icon>
-)
-
-export const ForkIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <circle cx="6" cy="6" r="3" />
-    <circle cx="18" cy="6" r="3" />
-    <circle cx="12" cy="18" r="3" />
-    <path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9" />
-    <path d="M12 12v3" />
-  </Icon>
-)
-
-export const BotIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <rect x="4" y="8" width="16" height="12" rx="3" />
-    <line x1="12" y1="4" x2="12" y2="8" />
-    <circle cx="9" cy="14" r="1" fill="currentColor" stroke="none" />
-    <circle cx="15" cy="14" r="1" fill="currentColor" stroke="none" />
-  </Icon>
-)
-
-export const WrenchIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-  </Icon>
-)
-
-export const ShieldIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    <path d="m9 12 2 2 4-4" />
-  </Icon>
-)
-
-export const ChatIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-  </Icon>
-)
-
-export const TerminalIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <polyline points="4 17 10 11 4 5" />
-    <line x1="12" y1="19" x2="20" y2="19" />
-  </Icon>
-)
-
-export const SparklesIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3z" />
-  </Icon>
-)
-
-export const BrainIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-3 3 3 3 0 0 0 .5 1.7A3 3 0 0 0 6 15a3 3 0 0 0 3 3 3 3 0 0 0 3-3" />
-    <path d="M12 5a3 3 0 0 1 3 3 3 3 0 0 1 3 3 3 3 0 0 1-.5 1.7A3 3 0 0 1 18 15a3 3 0 0 1-3 3 3 3 0 0 1-3-3" />
-    <path d="M12 5v14" />
-  </Icon>
-)
-
-
+export const MenuIcon = (p: IconProps) => <IconMenu2 stroke={1.75} {...p} />
+export const PlusIcon = (p: IconProps) => <IconPlus stroke={1.75} {...p} />
+export const ArrowUpIcon = (p: IconProps) => <IconArrowUp stroke={1.75} {...p} />
+export const ArrowLeftIcon = (p: IconProps) => <IconArrowLeft stroke={1.75} {...p} />
+export const ChevronDownIcon = (p: IconProps) => <IconChevronDown stroke={1.75} {...p} />
+export const ChevronRightIcon = (p: IconProps) => <IconChevronRight stroke={1.75} {...p} />
+export const GearIcon = (p: IconProps) => <IconSettings stroke={1.75} {...p} />
+export const XIcon = (p: IconProps) => <IconX stroke={1.75} {...p} />
+export const StopIcon = (p: IconProps) => <IconSquare stroke={1.75} fill="currentColor" {...p} />
+export const FolderIcon = (p: IconProps) => <IconFolder stroke={1.75} {...p} />
+export const FileIcon = (p: IconProps) => <IconFile stroke={1.75} {...p} />
+export const SearchIcon = (p: IconProps) => <IconSearch stroke={1.75} {...p} />
+export const RefreshCwIcon = (p: IconProps) => <IconRefresh stroke={1.75} {...p} />
+export const CheckIcon = (p: IconProps) => <IconCheck stroke={1.75} {...p} />
+export const CopyIcon = (p: IconProps) => <IconCopy stroke={1.75} {...p} />
+export const TrashIcon = (p: IconProps) => <IconTrash stroke={1.75} {...p} />
+export const EyeIcon = (p: IconProps) => <IconEye stroke={1.75} {...p} />
+export const CodeIcon = (p: IconProps) => <IconCode stroke={1.75} {...p} />
+export const TerminalIcon = (p: IconProps) => <IconTerminal stroke={1.75} {...p} />
+export const ChipIcon = (p: IconProps) => <IconCpu stroke={1.75} {...p} />
+export const BotIcon = (p: IconProps) => <IconRobot stroke={1.75} {...p} />
+export const MoreVerticalIcon = (p: IconProps) => <IconDotsVertical stroke={1.75} {...p} />
+export const MessageSquareIcon = (p: IconProps) => <IconMessage stroke={1.75} {...p} />
+export const HistoryIcon = (p: IconProps) => <IconClock stroke={1.75} {...p} />
+export const SparklesIcon = (p: IconProps) => <IconSparkles stroke={1.75} {...p} />
+export const DesktopIcon = (p: IconProps) => <IconDeviceDesktop stroke={1.75} {...p} />
+export const TabletIcon = (p: IconProps) => <IconDeviceTablet stroke={1.75} {...p} />
+export const SmartphoneIcon = (p: IconProps) => <IconDeviceMobile stroke={1.75} {...p} />
+export const ExternalLinkIcon = (p: IconProps) => <IconExternalLink stroke={1.75} {...p} />
+export const AlertCircleIcon = (p: IconProps) => <IconAlertCircle stroke={1.75} {...p} />
+export const ChecklistIcon = (p: IconProps) => <IconChecklist stroke={1.75} {...p} />
+export const WandIcon = (p: IconProps) => <IconWand stroke={1.75} {...p} />
+export const ShieldCheckIcon = (p: IconProps) => <IconShieldCheck stroke={1.75} {...p} />
+export const GitPullRequestIcon = (p: IconProps) => <IconGitPullRequest stroke={1.75} {...p} />
+export const BookIcon = (p: IconProps) => <IconBook stroke={1.75} {...p} />
+export const CompassIcon = (p: IconProps) => <IconCompass stroke={1.75} {...p} />
+export const NetworkIcon = (p: IconProps) => <IconNetwork stroke={1.75} {...p} />
+export const SendIcon = (p: IconProps) => <IconSend stroke={1.75} {...p} />
+export const PaperclipIcon = (p: IconProps) => <IconPaperclip stroke={1.75} {...p} />
+export const ForkIcon = (p: IconProps) => <IconGitFork stroke={1.75} {...p} />
+export const GitBranchIcon = (p: IconProps) => <IconGitBranch stroke={1.75} {...p} />
+export const PencilIcon = (p: IconProps) => <IconPencil stroke={1.75} {...p} />
+export const StepsIcon = (p: IconProps) => <IconListDetails stroke={1.75} {...p} />
+export const DiffIcon = (p: IconProps) => <IconFileDiff stroke={1.75} {...p} />
+export const PlayIcon = (p: IconProps) => <IconPlayerPlay stroke={1.75} {...p} />
+export const RevertIcon = (p: IconProps) => <IconRotate stroke={1.75} {...p} />
+export const DownloadIcon = (p: IconProps) => <IconDownload stroke={1.75} {...p} />
+export const BrainIcon = (p: IconProps) => <IconBrain stroke={1.75} {...p} />
+export const ExpandLinesIcon = (p: IconProps) => <IconMaximize stroke={1.75} {...p} />

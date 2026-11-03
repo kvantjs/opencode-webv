@@ -1,0 +1,10 @@
+{
+  "name": "session-ses_test",
+  "version": "1.0.0",
+  "description": "Session isolated project workspace",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "echo 'Build OK'",
+    "test": "echo 'Tests OK'"
+  }
+}

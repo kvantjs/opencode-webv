@@ -139,7 +139,7 @@ function FormSheet({
                   }
                 >
                   {field.options.map((o) => (
-                    <option key={o.value} value={o.value}>
+                    <option key={`${field.key}-${o.value}`} value={o.value}>
                       {o.label}
                     </option>
                   ))}

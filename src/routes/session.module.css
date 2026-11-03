@@ -89,6 +89,28 @@
   white-space: nowrap;
 }
 
+.subagentBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--bg-inset, #e2e8f0);
+  border: 1px solid var(--border, #cbd5e1);
+  color: var(--text-muted, #64748b);
+  margin-left: 6px;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+:global([data-theme="dark"]) .subagentBadge,
+:global(.dark) .subagentBadge {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #94a3b8;
+}
+
 .titleMenu {
   position: relative;
   flex-shrink: 0;
@@ -168,7 +190,7 @@
 }
 
 .diffSidebar {
-  width: clamp(360px, 38vw, 620px);
+  width: clamp(420px, 48vw, 860px);
   flex-shrink: 0;
   min-width: 0;
   border-left: 1px solid var(--border);
@@ -185,7 +207,7 @@
   position: fixed;
   inset: 0 0 0 auto;
   z-index: 50;
-  width: min(94vw, 620px);
+  width: min(96vw, 780px);
   background: var(--bg);
   outline: none;
   box-shadow: var(--shadow-pop);

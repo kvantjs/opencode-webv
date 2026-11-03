@@ -32,7 +32,7 @@ export type ToolPart = SessionMessageAssistantTool
 export type ReasoningPart = SessionMessageAssistantReasoning
 export type Part = Extract<Message, { type: 'assistant' }>['content'][number]
 export type Project = ApiProject & { worktree: string }
-export type Session = SessionInfo & { directory: string }
+export type Session = SessionInfo & { directory: string; hasSubagents?: boolean }
 export type PendingPermission = PermissionRequest
 export type SessionStatus = { type: 'busy' | 'idle' }
 export type Model = ModelInfo
@@ -65,6 +65,7 @@ export const toProject = (p: ApiProject): Project => ({
 export const toSession = (s: SessionInfo): Session => ({
   ...s,
   directory: s.location.directory,
+  hasSubagents: Boolean((s as any).hasSubagents),
 })
 const location = (directory?: string) => (directory ? { directory } : undefined)
 export const SESSION_LIST_LIMIT = 100

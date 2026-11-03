@@ -1,3 +1,4 @@
+@import "./animations.css";
 /* ---- Reset ---- */
 *,
 *::before,
@@ -91,6 +92,21 @@ h4 {
     ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
 
   --sidebar-width: 320px;
+
+  /* Agent Animation Tokens */
+  --text-2: light-dark(#6d6b64, #a3a3a3);
+  --text-3: light-dark(#98958c, #8a8a8a);
+  --surface: light-dark(#ffffff, #1a1a1a);
+  --surface-2: light-dark(#f0eeea, #222222);
+  --line: light-dark(#e4e1db, #262626);
+  --running: light-dark(#6d6b64, #d4d4d4);
+  --r-pill: 999px;
+  --r-md: 8px;
+  --t-sm: 12.5px;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-fast: 180ms;
+  --dur-slow: 260ms;
 }
 
 :root[data-theme='light'] {

@@ -51,7 +51,7 @@ export function ProviderSettings() {
   return (
     <div className={styles.content}>
       <p className={styles.help}>
-        Connect your accounts to use their models in OpenCode.
+        Connect your accounts to use their models in Kvant.
       </p>
       {query.isPending && <p role="status">Loading providers…</p>}
       {query.isError && (
@@ -362,7 +362,7 @@ function ProviderConnection({
             <p className={styles.help}>Choose how to connect.</p>
             {methods.map((m, i) => (
               <button
-                key={i}
+                key={`method-${methodLabel(m)}-${i}`}
                 className={styles.button}
                 onClick={() => {
                   setMethod(m)

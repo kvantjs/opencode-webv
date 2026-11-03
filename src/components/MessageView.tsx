@@ -6,7 +6,7 @@ import type { Message, Part, ReasoningPart, ToolPart } from '~/lib/oc'
 import { duration } from '~/lib/format'
 import { Markdown } from './Markdown'
 import { ChatImage } from './ChatImage'
-import { BrainIcon, CheckIcon, ChevronRightIcon, ForkIcon, XIcon } from './icons'
+import { CheckIcon, ChevronRightIcon, ForkIcon, XIcon } from './icons'
 import styles from './MessageView.module.css'
 
 export function isFinishedAssistantTurn(message: Message) {
@@ -74,6 +74,8 @@ export function taskChildSessionIds(messages: Message[]) {
     ),
   ]
 }
+import { ReasoningBlock } from './ThinkingIndicator'
+
 export const MessageView = React.memo(function MessageView({
   message,
   directory,
@@ -98,7 +100,7 @@ export const MessageView = React.memo(function MessageView({
                 const uri = `data:${file.mime};base64,${file.data}`
                 if (file.mime.startsWith('image/')) return (
                   <ChatImage
-                    key={i}
+                    key={`img-${file.name ?? i}`}
                     className={styles.userAttachmentImage}
                     src={uri}
                     alt={file.name ?? 'Attached image'}
@@ -106,7 +108,7 @@ export const MessageView = React.memo(function MessageView({
                 )
                 return (
                   <a
-                    key={i}
+                    key={`file-${file.name ?? i}`}
                     href={uri}
                     download={file.name}
                     target="_blank"
@@ -130,32 +132,23 @@ export const MessageView = React.memo(function MessageView({
     return message.error ? (
       <div className={styles.error}>{message.error.message}</div>
     ) : null
-  if (message.type === 'assistant')
+  if (message.type === 'assistant') {
+    const isMessageLive = !message.time?.completed && !message.error
     return (
       <div className={styles.assistant}>
         {groupParts(message.content).map((group, index) =>
           group.kind === 'reasoning' ? (
-            <details
-              key={index}
-              className={styles.reasoning}
-              open={!message.time?.completed}
-            >
-              <summary>
-                <ChevronRightIcon size={13} className={styles.disclosure} />
-                <BrainIcon size={14} className={styles.thinkingIcon} />
-                <span>{reasoningLabel(group.parts)}</span>
-              </summary>
-              <div className={styles.reasoningBody}>
-                {group.parts.map((p, i) => (
-                  <Markdown key={i}>{p.text}</Markdown>
-                ))}
-              </div>
-            </details>
+            <ReasoningBlock
+              key={`reasoning-${index}`}
+              text={group.parts.map((p) => p.text).join('\n')}
+              live={isMessageLive}
+              label={reasoningLabel(group.parts)}
+            />
           ) : group.part.type === 'text' ? (
-            <Markdown key={index}>{group.part.text}</Markdown>
+            <Markdown key={`text-${index}`}>{group.part.text}</Markdown>
           ) : (
             <ToolRow
-              key={index}
+              key={group.part.id}
               part={group.part}
               directory={directory}
               sessionId={sessionId}
@@ -186,6 +179,7 @@ export const MessageView = React.memo(function MessageView({
         )}
       </div>
     )
+  }
   if (message.type === 'compaction')
     return (
       <details className={styles.reasoning}>
@@ -389,7 +383,9 @@ function ToolRow({
       <details className={styles.tool}>
         <summary>
           <ChevronRightIcon size={13} className={styles.disclosure} />
-          <span className={styles.toolName}>{part.name}</span>
+          <span className={`${styles.toolName} ${['streaming', 'running'].includes(state.status) ? 'agent-activity__label is-live' : ''}`}>
+            {part.name}
+          </span>
           {summary && (
             <span className={styles.toolTitle} title={summary}>
               {summary}
@@ -398,7 +394,11 @@ function ToolRow({
           {['shell', 'subagent'].includes(part.name) && <ToolElapsed part={part} />}
           <span className={styles.toolStatus}>
             {['streaming', 'running'].includes(state.status) && (
-              <span className={styles.spinner} />
+              part.name === 'subagent' ? (
+                <span className="agent-subagent__pulse" />
+              ) : (
+                <span className="agent-activity__pulse" />
+              )
             )}
             {state.status === 'completed' && (
               <CheckIcon size={13} className={styles.ok} />
@@ -418,7 +418,7 @@ function ToolRow({
             const summary = toolSummary(call.input)
             return (
               <details
-                key={index}
+                key={`${call.tool}-${index}`}
                 className={styles.tool}
                 open={call.status === 'running'}
               >

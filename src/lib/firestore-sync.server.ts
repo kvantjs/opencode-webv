@@ -11,18 +11,25 @@ import {
   orderBy,
   limit,
 } from 'firebase/firestore'
-import { promises as fs } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import type { SessionInfo, SessionMessageInfo, Project as ApiProject } from '@opencode/client'
+import firebaseConfig from '../../firebase-applet-config.json'
 
 let firestoreDb: any = null
 
 function getFirestoreInstance() {
   if (firestoreDb) return firestoreDb
   try {
-    const configPath = path.join(process.cwd(), 'firebase-applet-config.json')
-    const configRaw = require('fs').readFileSync(configPath, 'utf-8')
-    const config = JSON.parse(configRaw)
+    let config = firebaseConfig as any
+    if (!config || !config.apiKey) {
+      const configPath = path.join(process.cwd(), 'firebase-applet-config.json')
+      if (existsSync(configPath)) {
+        config = JSON.parse(readFileSync(configPath, 'utf-8'))
+      }
+    }
+
+    if (!config || !config.apiKey) return null
 
     const app = getApps().length > 0 ? getApp() : initializeApp({
       apiKey: config.apiKey,

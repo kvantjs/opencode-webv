@@ -74,7 +74,7 @@ type SheetName =
   | null
 
 export function Composer({
-  placeholder = 'Message opencode…',
+  placeholder = 'Message Kvant…',
   onSend,
   busy,
   onAbort,

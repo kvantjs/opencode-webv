@@ -17,6 +17,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   GearIcon,
+  GitBranchIcon,
   PlusIcon,
   SearchIcon,
 } from './icons'
@@ -87,7 +88,8 @@ export function SessionListPanel({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className={styles.panel}>
       <header className={styles.header}>
-        <span className={styles.wordmark}>opencode</span>
+        <img src="https://imgdb.io/i/d6PWxbc.png" alt="Kvant Logo" className={styles.logo} />
+        <span className={styles.wordmark}>Kvant</span>
       </header>
 
       <Link to="/" className={styles.newSession} onClick={onNavigate}>
@@ -127,7 +129,7 @@ export function SessionListPanel({ onNavigate }: { onNavigate?: () => void }) {
       <nav className={styles.list}>
         {projects.isError && (
           <p className={styles.hint}>
-            Can't reach the OpenCode server.{' '}
+            Can't reach the Kvant server.{' '}
             <Link to="/settings" onClick={onNavigate}>
               Check settings
             </Link>
@@ -252,6 +254,14 @@ function ProjectGroup({
                   <span className={styles.sessionTitle}>
                     {session.title || 'Untitled session'}
                   </span>
+                  {(session.hasSubagents || Boolean(session.parentID)) && (
+                    <span
+                      className={styles.subagentBadge}
+                      title="O agente acionou subagente(s) para ajudar nesta tarefa"
+                    >
+                      <GitBranchIcon size={12} />
+                    </span>
+                  )}
                   <span
                     className={styles.sessionTime}
                     suppressHydrationWarning

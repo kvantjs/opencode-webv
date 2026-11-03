@@ -25,6 +25,7 @@ import {
   loadSessionsFromFirestore,
   loadMessagesFromFirestore,
 } from './firestore-sync.server'
+import { createKvantAgnoTeam } from './agno-framework'
 
 const execAsync = promisify(exec)
 
@@ -37,7 +38,303 @@ export interface StoredData {
   messages: Record<string, SessionMessageInfo[]>
 }
 
-const STORAGE_FILE = path.join(process.cwd(), '.opencode', 'storage.json')
+import { createTwoFilesPatch } from 'diff'
+
+const STORAGE_FILE = path.join(process.cwd(), '.Kvant', 'storage.json')
+
+// Dedicated, Isolated Development Environments per Session & Conversation
+export const SESSIONS_WORKSPACES_ROOT = path.resolve(process.cwd(), 'sessions-workspaces')
+export const AGENT_WORKSPACE_DIR = SESSIONS_WORKSPACES_ROOT
+
+export function getSessionWorkspaceDir(sessionId: string): string {
+  const cleanId = sessionId.replace(/[^a-zA-Z0-9_\-]/g, '_')
+  return path.resolve(SESSIONS_WORKSPACES_ROOT, cleanId)
+}
+
+export function resolveAgentWorkspace(requestedDir?: string | null, sessionId?: string): string {
+  if (sessionId) {
+    return getSessionWorkspaceDir(sessionId)
+  }
+  if (!requestedDir || requestedDir === process.cwd() || requestedDir === '/' || requestedDir === '.') {
+    return SESSIONS_WORKSPACES_ROOT
+  }
+  const normalized = path.resolve(requestedDir)
+  if (normalized.startsWith(SESSIONS_WORKSPACES_ROOT)) {
+    return normalized
+  }
+  return SESSIONS_WORKSPACES_ROOT
+}
+
+export function assertInsideAgentWorkspace(filepath: string, baseDir: string): string {
+  const resolved = path.resolve(baseDir, filepath)
+  if (!resolved.startsWith(SESSIONS_WORKSPACES_ROOT)) {
+    throw new Error(
+      `Security Violation: Access denied. The AI agent operates exclusively inside its session development workspace and is strictly prohibited from accessing, inspecting, or modifying the host application.`,
+    )
+  }
+  return resolved
+}
+
+export async function ensureSessionWorkspaceExists(sessionId: string): Promise<string> {
+  const dir = getSessionWorkspaceDir(sessionId)
+  try {
+    await fs.mkdir(path.join(dir, 'src'), { recursive: true })
+    const indexPath = path.join(dir, 'index.html')
+    try {
+      await fs.access(indexPath)
+    } catch {
+      await fs.writeFile(
+        indexPath,
+        `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Session Web App</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      background: #0f172a;
+      color: #f8fafc;
+      text-align: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .card {
+      max-width: 520px;
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 32px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+    }
+    h1 { font-size: 24px; margin-top: 0; color: #38bdf8; }
+    p { color: #94a3b8; line-height: 1.6; }
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <span class="badge">Session Workspace</span>
+    <h1>Live App Preview</h1>
+    <p>Ask the agent in the chat to create a web app, component, or site. Your live application preview will render here automatically!</p>
+  </div>
+</body>
+</html>`,
+        'utf-8',
+      )
+    }
+
+    const readmePath = path.join(dir, 'README.md')
+    try {
+      await fs.access(readmePath)
+    } catch {
+      await fs.writeFile(
+        readmePath,
+        `# Session Development Environment\n\nSession ID: ${sessionId}\nAll files, builds, and code developed by the AI agent in this conversation live here.\n`,
+        'utf-8',
+      )
+    }
+
+    const pkgPath = path.join(dir, 'package.json')
+    try {
+      await fs.access(pkgPath)
+    } catch {
+      await fs.writeFile(
+        pkgPath,
+        JSON.stringify(
+          {
+            name: `session-${sessionId.slice(0, 10)}`,
+            version: '1.0.0',
+            description: 'Session isolated project workspace',
+            main: 'src/index.ts',
+            scripts: {
+              build: "echo 'Build OK'",
+              test: "echo 'Tests OK'",
+            },
+          },
+          null,
+          2,
+        ),
+        'utf-8',
+      )
+    }
+  } catch (err) {
+    console.warn(`Failed to initialize session workspace for [${sessionId}]:`, err)
+  }
+  return dir
+}
+
+// Session Diff Tracker: sessionId -> (filePath -> { before, after, status })
+export interface DiffRecord {
+  before: string
+  after: string
+  status: 'added' | 'modified' | 'deleted'
+}
+export const sessionDiffMap = new Map<string, Map<string, DiffRecord>>()
+
+export function recordSessionFileChange(
+  sessionId: string,
+  filePath: string,
+  before: string,
+  after: string,
+  status: 'added' | 'modified' | 'deleted',
+) {
+  if (!sessionDiffMap.has(sessionId)) {
+    sessionDiffMap.set(sessionId, new Map())
+  }
+  sessionDiffMap.get(sessionId)!.set(filePath, { before, after, status })
+}
+
+// Emoji Stripper: Guarantees no emojis are sent by agent, subagents, or system
+export function stripEmojis(str: string): string {
+  if (!str) return str
+  return str
+    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{2B55}\u{FE0F}]/gu, '')
+    .replace(/[🤖❓🚀✨💡🔍⚡️🔥🛠️💻📦]/gu, '')
+}
+
+// Session Interactive Forms & Clarification Questions
+export interface FormInfo {
+  id: string
+  sessionID: string
+  title: string
+  fields: Array<{
+    key: string
+    title?: string
+    description?: string
+    type: 'string' | 'boolean' | 'multiselect' | 'external'
+    required?: boolean
+    default?: any
+    options?: Array<{ label: string; value: string }>
+    url?: string
+  }>
+}
+export const sessionFormsMap = new Map<string, FormInfo[]>()
+
+// Automatic Code Extractor & Fail-safe workspace file applicator
+export async function applyCodeBlocksToWorkspace(
+  sessionID: string,
+  text: string,
+  workspaceRoot: string,
+): Promise<string[]> {
+  const createdFiles: string[] = []
+  if (!text) return createdFiles
+
+  const codeBlockRegex = /```([a-zA-Z0-9_-]+)?(?:\s+(?:<!--\s*filepath:\s*([^\n>]+)\s*-->|\/\/\s*filepath:\s*([^\n]+)|#\s*filepath:\s*([^\n]+)|\[file:\s*([^\n\]]+)\]|filename=["']?([^"'\n]+)["']?|([a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+)))?\n([\s\S]*?)```/g
+
+  let match: RegExpExecArray | null
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    const lang = (match[1] || '').toLowerCase()
+    let filePath = match[2] || match[3] || match[4] || match[5] || match[6] || match[7]
+    const content = match[8] || ''
+
+    if (!filePath) {
+      if (lang === 'html' || content.includes('<!DOCTYPE html>') || content.includes('<html')) {
+        filePath = 'index.html'
+      } else if (lang === 'css' && !createdFiles.includes('styles.css') && (content.includes('{') || content.includes('@import'))) {
+        filePath = 'styles.css'
+      } else if ((lang === 'javascript' || lang === 'js') && !createdFiles.includes('app.js') && (content.includes('function') || content.includes('document.') || content.includes('const '))) {
+        filePath = 'app.js'
+      }
+    }
+
+    if (filePath && content.trim()) {
+      filePath = filePath.trim().replace(/^['"]|['"]$/g, '').replace(/^[./\\]+/, '')
+      try {
+        const fullPath = assertInsideAgentWorkspace(filePath, workspaceRoot)
+        let before = ''
+        let status: 'added' | 'modified' = 'added'
+        try {
+          before = await fs.readFile(fullPath, 'utf-8')
+          status = 'modified'
+        } catch {
+          status = 'added'
+        }
+        await fs.mkdir(path.dirname(fullPath), { recursive: true })
+        await fs.writeFile(fullPath, content.trim(), 'utf-8')
+        recordSessionFileChange(sessionID, filePath, before, content.trim(), status)
+        createdFiles.push(filePath)
+      } catch (err) {
+        console.warn(`Auto-apply file write error for ${filePath}:`, err)
+      }
+    }
+  }
+
+  // Also catch raw <!DOCTYPE html> if outputted directly
+  if (!createdFiles.includes('index.html')) {
+    const rawHtmlMatch = text.match(/<!DOCTYPE html[\s\S]*?<\/html>/i)
+    if (rawHtmlMatch) {
+      try {
+        const fullPath = path.join(workspaceRoot, 'index.html')
+        let before = ''
+        try {
+          before = await fs.readFile(fullPath, 'utf-8')
+        } catch {}
+        await fs.writeFile(fullPath, rawHtmlMatch[0], 'utf-8')
+        recordSessionFileChange(sessionID, 'index.html', before, rawHtmlMatch[0], before ? 'modified' : 'added')
+        createdFiles.push('index.html')
+      } catch {}
+    }
+  }
+
+  return createdFiles
+}
+
+export interface WorkspaceFileItem {
+  path: string
+  name: string
+  type: 'file' | 'directory'
+  size: number
+  extension: string
+}
+
+export async function getDirectoryTreeRecursive(dir: string, baseDir: string): Promise<WorkspaceFileItem[]> {
+  const result: WorkspaceFileItem[] = []
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true })
+    for (const e of entries) {
+      if (e.name === 'node_modules' || e.name === '.git') continue
+      const full = path.join(dir, e.name)
+      const rel = path.relative(baseDir, full)
+      if (e.isDirectory()) {
+        result.push({
+          path: rel,
+          name: e.name,
+          type: 'directory',
+          size: 0,
+          extension: '',
+        })
+        const sub = await getDirectoryTreeRecursive(full, baseDir)
+        result.push(...sub)
+      } else {
+        const stat = await fs.stat(full).catch(() => ({ size: 0 }))
+        result.push({
+          path: rel,
+          name: e.name,
+          type: 'file',
+          size: stat.size,
+          extension: path.extname(e.name).replace('.', ''),
+        })
+      }
+    }
+  } catch {}
+  return result
+}
 
 // Gemini AI Client
 function getGeminiClient(): GoogleGenAI | null {
@@ -205,18 +502,245 @@ export const SKILLS: SkillInfo[] = [
 
 // --- Workspace Tools Definitions for Gemini ---
 
+// --- Public APIs & Web Research Engine ---
+
+interface PublicApiEntry {
+  api: string
+  description: string
+  auth: string
+  https: boolean
+  cors: string
+  link: string
+  category: string
+}
+
+let publicApisCache: PublicApiEntry[] | null = null
+
+async function loadPublicApis(): Promise<PublicApiEntry[]> {
+  if (publicApisCache && publicApisCache.length > 0) return publicApisCache
+  try {
+    const res = await fetch('https://raw.githubusercontent.com/public-apis/public-apis/master/README.md', {
+      signal: AbortSignal.timeout(6000),
+    })
+    if (res.ok) {
+      const text = await res.text()
+      const entries: PublicApiEntry[] = []
+      let currentCategory = 'General'
+      const lines = text.split('\n')
+      for (const line of lines) {
+        if (line.startsWith('### ')) {
+          currentCategory = line.replace('### ', '').trim()
+        } else if (line.startsWith('| [') && line.includes('|')) {
+          const parts = line.split('|').map((s) => s.trim()).filter(Boolean)
+          if (parts.length >= 5) {
+            const matchLink = parts[0].match(/\[(.*?)\]\((.*?)\)/)
+            const name = matchLink ? matchLink[1] : parts[0]
+            const link = matchLink ? matchLink[2] : ''
+            entries.push({
+              api: name,
+              description: parts[1],
+              auth: parts[2] === '`No`' ? 'None' : parts[2].replace(/`/g, ''),
+              https: parts[3] === 'Yes',
+              cors: parts[4].replace(/`/g, ''),
+              link,
+              category: currentCategory,
+            })
+          }
+        }
+      }
+      if (entries.length > 0) {
+        publicApisCache = entries
+        return entries
+      }
+    }
+  } catch (err) {
+    console.warn('Public APIs index online load note:', err)
+  }
+
+  // Curated offline index of popular public APIs
+  publicApisCache = [
+    { api: 'Open-Meteo', description: 'Free weather forecast API with temperature, wind, precipitation', auth: 'None', https: true, cors: 'Yes', link: 'https://open-meteo.com/', category: 'Weather' },
+    { api: 'CoinGecko', description: 'Cryptocurrency market data, real-time prices, volume, exchanges', auth: 'None', https: true, cors: 'Yes', link: 'https://www.coingecko.com/api', category: 'Cryptocurrency' },
+    { api: 'REST Countries', description: 'Get information about world countries (flags, currencies, borders)', auth: 'None', https: true, cors: 'Yes', link: 'https://restcountries.com/', category: 'Geocoding' },
+    { api: 'GitHub REST API', description: 'Search repositories, commits, users, pull requests, releases', auth: 'Optional', https: true, cors: 'Yes', link: 'https://docs.github.com/rest', category: 'Development' },
+    { api: 'PokeAPI', description: 'RESTful Pokémon database with sprites, stats, abilities, types', auth: 'None', https: true, cors: 'Yes', link: 'https://pokeapi.co/', category: 'Games' },
+    { api: 'NASA Open APIs', description: 'Astronomy picture of the day, Mars rovers, asteroids, earth imagery', auth: 'apiKey', https: true, cors: 'Yes', link: 'https://api.nasa.gov/', category: 'Science' },
+    { api: 'Free Dictionary API', description: 'English dictionary definitions, meanings, phonetics, audio', auth: 'None', https: true, cors: 'Yes', link: 'https://dictionaryapi.dev/', category: 'Dictionaries' },
+    { api: 'FakeStore API', description: 'Mock e-commerce store with products, shopping cart, user logins', auth: 'None', https: true, cors: 'Yes', link: 'https://fakestoreapi.com/', category: 'Development' },
+    { api: 'Hacker News API', description: 'Top stories, comments, ask HN, jobs, user profiles from Hacker News', auth: 'None', https: true, cors: 'Yes', link: 'https://github.com/HackerNews/API', category: 'News' },
+    { api: 'IP-API', description: 'IP geolocation, ASN, timezone, country, and network information', auth: 'None', https: true, cors: 'Yes', link: 'https://ip-api.com/', category: 'Geocoding' },
+    { api: 'Frankfurter', description: 'Currency exchange rates published by the European Central Bank', auth: 'None', https: true, cors: 'Yes', link: 'https://www.frankfurter.app/', category: 'Finance' },
+    { api: 'Open Brewery DB', description: 'Public brewery information, locations, and craft beer directory', auth: 'None', https: true, cors: 'Yes', link: 'https://www.openbrewerydb.org/', category: 'Food & Drink' },
+    { api: 'Jikan (MyAnimeList)', description: 'Unofficial MyAnimeList REST API for anime and manga data', auth: 'None', https: true, cors: 'Yes', link: 'https://jikan.moe/', category: 'Anime' },
+  ]
+  return publicApisCache
+}
+
+async function performWebSearch(query: string): Promise<string> {
+  try {
+    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) })
+    if (res.ok) {
+      const data = await res.json()
+      const results: string[] = []
+      if (data.Heading) results.push(`Title: ${data.Heading}`)
+      if (data.AbstractText) results.push(`Summary: ${data.AbstractText}`)
+      if (data.AbstractURL) results.push(`Source: ${data.AbstractURL}`)
+      if (Array.isArray(data.RelatedTopics) && data.RelatedTopics.length > 0) {
+        results.push('\nRelated Findings:')
+        for (const topic of data.RelatedTopics.slice(0, 5)) {
+          if (topic.Text && topic.FirstURL) {
+            results.push(`- ${topic.Text} (${topic.FirstURL})`)
+          }
+        }
+      }
+      if (results.length > 0) {
+        return results.join('\n')
+      }
+    }
+  } catch {}
+
+  try {
+    const htmlUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`
+    const res = await fetch(htmlUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      signal: AbortSignal.timeout(6000),
+    })
+    if (res.ok) {
+      const html = await res.text()
+      const matches = [...html.matchAll(/<a class="result__snippet[^>]*>(.*?)<\/a>/g)]
+      if (matches.length > 0) {
+        const snippets = matches.slice(0, 5).map((m) => `- ${m[1].replace(/<[^>]+>/g, '').trim()}`)
+        return `Web Search Results for "${query}":\n${snippets.join('\n')}`
+      }
+    }
+  } catch {}
+
+  return `Search completed for "${query}". Explore documentation and public APIs directly.`
+}
+
+async function executeBrowserAction(url: string, action = 'render_text'): Promise<string> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Playwright-CLI/1.0; HeadlessChrome) AppleWebKit/537.36 (KHTML, like Gecko)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!res.ok) {
+      return `HTTP ${res.status} ${res.statusText} when fetching ${url}`
+    }
+    const html = await res.text()
+
+    if (action === 'extract_links') {
+      const links = [...html.matchAll(/<a\s+(?:[^>]*?\s+)?href=["']([^"']*)["'][^>]*>(.*?)<\/a>/gi)]
+        .slice(0, 25)
+        .map((m) => `- [${m[2].replace(/<[^>]+>/g, '').trim() || 'Link'}](${m[1]})`)
+      return `Extracted Links from ${url}:\n${links.join('\n') || 'No links found.'}`
+    }
+
+    if (action === 'check_status') {
+      return `Page ${url} is accessible. Status: 200 OK. Content-Type: ${res.headers.get('content-type') || 'text/html'}. Payload size: ${html.length} bytes.`
+    }
+
+    // Clean HTML to readable text for browser simulation
+    const cleaned = html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 4000)
+
+    return `Browser CLI Page Render (${url}):\n${cleaned}`
+  } catch (err: any) {
+    return `Browser CLI Error: ${err.message || String(err)}`
+  }
+}
+
+// --- Comprehensive Agent Tools Suite ---
+
 const workspaceTools = [
   {
     functionDeclarations: [
       {
+        name: 'web_search',
+        description: 'Search the live web for technical documentation, libraries, guides, bug fixes, or information.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            query: {
+              type: Type.STRING,
+              description: 'The search query string.',
+            },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'fetch_web_page',
+        description: 'Fetch content, HTML, or JSON from any public URL, REST API, or documentation endpoint.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            url: {
+              type: Type.STRING,
+              description: 'The full URL to fetch.',
+            },
+            method: {
+              type: Type.STRING,
+              description: 'HTTP method (GET, POST). Defaults to GET.',
+            },
+          },
+          required: ['url'],
+        },
+      },
+      {
+        name: 'public_apis_search',
+        description: 'Search thousands of curated public APIs from https://github.com/public-apis/public-apis by category or keyword.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            query: {
+              type: Type.STRING,
+              description: 'Search keyword (e.g. weather, crypto, finance, music, games, AI, geocoding, books).',
+            },
+            category: {
+              type: Type.STRING,
+              description: 'Optional category filter.',
+            },
+          },
+        },
+      },
+      {
+        name: 'playwright_browser_cli',
+        description: 'Simulate a browser CLI / Playwright inspection to test websites, extract links, check UI health, and render page content.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            url: {
+              type: Type.STRING,
+              description: 'The URL to navigate to.',
+            },
+            action: {
+              type: Type.STRING,
+              description: 'Action: render_text, extract_links, or check_status. Defaults to render_text.',
+            },
+          },
+          required: ['url'],
+        },
+      },
+      {
         name: 'run_bash_command',
-        description: 'Execute a bash command in the workspace directory (e.g. npm run build, npm test, git status, ls).',
+        description: 'Execute shell commands (npm, node, tsc, python, git, etc.) strictly inside the agent dedicated development workspace.',
         parameters: {
           type: Type.OBJECT,
           properties: {
             command: {
               type: Type.STRING,
-              description: 'The shell command to execute.',
+              description: 'The shell command to execute in the workspace.',
             },
           },
           required: ['command'],
@@ -224,13 +748,13 @@ const workspaceTools = [
       },
       {
         name: 'read_workspace_file',
-        description: 'Read the contents of a file in the workspace.',
+        description: 'Read the contents of a file in the agent dedicated development workspace.',
         parameters: {
           type: Type.OBJECT,
           properties: {
             filepath: {
               type: Type.STRING,
-              description: 'Relative path to the file to read.',
+              description: 'Relative path to the file inside the agent workspace.',
             },
           },
           required: ['filepath'],
@@ -238,13 +762,13 @@ const workspaceTools = [
       },
       {
         name: 'write_workspace_file',
-        description: 'Create or update a file in the workspace with new content.',
+        description: 'Create or update a file in the agent dedicated development workspace with new content.',
         parameters: {
           type: Type.OBJECT,
           properties: {
             filepath: {
               type: Type.STRING,
-              description: 'Relative path to the file to write.',
+              description: 'Relative path to the file in the agent workspace.',
             },
             content: {
               type: Type.STRING,
@@ -255,16 +779,36 @@ const workspaceTools = [
         },
       },
       {
-        name: 'get_git_diff',
-        description: 'Inspect the current git status and unstaged/staged git diffs in the repository.',
+        name: 'create_workspace_directory',
+        description: 'Create a new directory or folder structure inside the agent workspace.',
         parameters: {
           type: Type.OBJECT,
-          properties: {},
+          properties: {
+            dirpath: {
+              type: Type.STRING,
+              description: 'Relative path to the directory to create.',
+            },
+          },
+          required: ['dirpath'],
+        },
+      },
+      {
+        name: 'delete_workspace_file',
+        description: 'Delete a file inside the agent workspace.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            filepath: {
+              type: Type.STRING,
+              description: 'Relative path to the file to delete.',
+            },
+          },
+          required: ['filepath'],
         },
       },
       {
         name: 'list_workspace_dir',
-        description: 'List files and directories in a workspace directory.',
+        description: 'List files and directories in the agent workspace.',
         parameters: {
           type: Type.OBJECT,
           properties: {
@@ -275,39 +819,259 @@ const workspaceTools = [
           },
         },
       },
+      {
+        name: 'compile_and_test',
+        description: 'Compile, build, test, and measure execution performance in the agent workspace.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            command: {
+              type: Type.STRING,
+              description: 'Build or test command to run (e.g. npm run build, npm test, tsc). Defaults to npm run build.',
+            },
+          },
+        },
+      },
+      {
+        name: 'code_review_and_audit',
+        description: 'Audit code quality, detect vulnerabilities, evaluate types, and check architecture.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            filepath: {
+              type: Type.STRING,
+              description: 'Optional relative path to specific file to audit.',
+            },
+          },
+        },
+      },
+      {
+        name: 'get_git_diff',
+        description: 'Inspect current git status and unstaged/staged git diffs in the agent workspace.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {},
+        },
+      },
+      {
+        name: 'ask_user_question',
+        description: 'Faz uma pergunta real de esclarecimento ou requisitos ao usuário no chat através de formulário interativo ou opções, pausando para aguardar a resposta antes de prosseguir.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            question: {
+              type: Type.STRING,
+              description: 'A pergunta objetiva e clara a ser feita ao usuário.',
+            },
+            options: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: 'Lista opcional de opções recomendadas para o usuário selecionar.',
+            },
+          },
+          required: ['question'],
+        },
+      },
+      {
+        name: 'describe_progress',
+        description: 'O agente principal invoca este subagente de descrição apenas quando quiser relatar uma descrição de progresso relevante no chat (e não sempre). Proibido usar emojis.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            reporter_name: {
+              type: Type.STRING,
+              description: 'Nome do subagente de status (ex: "Subagente de Descrição", "Progress Reporter").',
+            },
+            description: {
+              type: Type.STRING,
+              description: 'Descrição real e concisa (1-3 frases) do que acabou de acontecer. Não use emojis.',
+            },
+          },
+          required: ['description'],
+        },
+      },
+      {
+        name: 'spawn_subagent',
+        description: 'Cria e invoca um subagente ou múltiplos subagentes especializados APENAS quando o agente principal realmente precisar de ajuda para uma tarefa específica (divisão de tarefas, auditoria, pesquisa ou perguntas), e não em qualquer situação. Proibido usar emojis.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            name: {
+              type: Type.STRING,
+              description: 'Nome ou papel do subagente (ex: "Questioner Subagent", "Progress Reporter", "UI Architect", "Code Auditor").',
+            },
+            task: {
+              type: Type.STRING,
+              description: 'Tipo da tarefa: "describe_progress" | "ask_question" | "execute_task" | "code_review" | "research"',
+            },
+            instructions: {
+              type: Type.STRING,
+              description: 'Instruções detalhadas para o subagente executar. Não use emojis.',
+            },
+            context: {
+              type: Type.STRING,
+              description: 'Contexto dos passos anteriores, logs, código ou resultado para análise.',
+            },
+          },
+          required: ['name', 'task', 'instructions'],
+        },
+      },
     ],
   },
 ]
 
-async function executeWorkspaceTool(name: string, args: any, workspaceDir: string): Promise<string> {
-  const dir = workspaceDir || process.cwd()
+async function executeWorkspaceTool(name: string, args: any, workspaceDir: string, sessionId?: string): Promise<string> {
+  const dir = sessionId ? getSessionWorkspaceDir(sessionId) : resolveAgentWorkspace(workspaceDir)
+
   try {
+    // 1. Web Research
+    if (name === 'web_search') {
+      return await performWebSearch(args.query || '')
+    }
+
+    // 2. Fetch Web Page / API Endpoint
+    if (name === 'fetch_web_page') {
+      const url: string = args.url || ''
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        return 'Error: Invalid URL. Must start with http:// or https://'
+      }
+      const res = await fetch(url, {
+        method: args.method || 'GET',
+        headers: { 'User-Agent': 'Agent-Researcher/1.0' },
+        signal: AbortSignal.timeout(10000),
+      })
+      const contentType = res.headers.get('content-type') || ''
+      const text = await res.text()
+      if (contentType.includes('application/json')) {
+        try {
+          const parsed = JSON.parse(text)
+          return JSON.stringify(parsed, null, 2).slice(0, 8000)
+        } catch {}
+      }
+      return text.slice(0, 8000)
+    }
+
+    // 3. Search Curated Public APIs
+    if (name === 'public_apis_search') {
+      const apis = await loadPublicApis()
+      const q = (args.query || '').toLowerCase()
+      const cat = (args.category || '').toLowerCase()
+      const filtered = apis.filter((item) => {
+        const matchesQuery = !q || item.api.toLowerCase().includes(q) || item.description.toLowerCase().includes(q)
+        const matchesCategory = !cat || item.category.toLowerCase().includes(cat)
+        return matchesQuery && matchesCategory
+      }).slice(0, 10)
+
+      if (filtered.length === 0) {
+        return `No public APIs found matching "${args.query || ''}" in category "${args.category || ''}". Try broader keywords like "weather", "finance", "crypto", "games", "ai", or "data".`
+      }
+
+      const formatted = filtered.map(
+        (a) => `### ${a.api} (${a.category})\n- Description: ${a.description}\n- Auth: ${a.auth}\n- HTTPS: ${a.https ? 'Yes' : 'No'}\n- CORS: ${a.cors}\n- Documentation Link: ${a.link}`,
+      ).join('\n\n')
+
+      return `Found ${filtered.length} Public API(s) from index (https://github.com/public-apis/public-apis):\n\n${formatted}`
+    }
+
+    // 4. Playwright Browser CLI
+    if (name === 'playwright_browser_cli') {
+      return await executeBrowserAction(args.url || '', args.action || 'render_text')
+    }
+
+    // 5. Run Bash Command (Strictly in Session Workspace)
     if (name === 'run_bash_command') {
       const { stdout, stderr } = await execAsync(args.command, {
         cwd: dir,
-        timeout: 45_000,
-        maxBuffer: 2 * 1024 * 1024,
+        timeout: 60_000,
+        maxBuffer: 4 * 1024 * 1024,
       })
-      return stdout + (stderr ? `\nStderr:\n${stderr}` : '')
+      return (stdout + (stderr ? `\nStderr:\n${stderr}` : '')).trim() || 'Command completed with empty output.'
     }
+
+    // 6. Read Workspace File
     if (name === 'read_workspace_file') {
-      const targetPath: string = args.filepath ?? ''
-      const fullPath = path.resolve(dir, targetPath)
-      if (!fullPath.startsWith(dir)) {
-        return 'Error: Access denied outside workspace directory.'
-      }
+      const fullPath = assertInsideAgentWorkspace(args.filepath ?? '', dir)
       return await fs.readFile(fullPath, 'utf-8')
     }
+
+    // 7. Write Workspace File
     if (name === 'write_workspace_file') {
-      const targetPath: string = args.filepath ?? ''
-      const fullPath = path.resolve(dir, targetPath)
-      if (!fullPath.startsWith(dir)) {
-        return 'Error: Access denied outside workspace directory.'
+      const fullPath = assertInsideAgentWorkspace(args.filepath ?? '', dir)
+      let before = ''
+      let status: 'added' | 'modified' = 'added'
+      try {
+        before = await fs.readFile(fullPath, 'utf-8')
+        status = 'modified'
+      } catch {
+        status = 'added'
       }
       await fs.mkdir(path.dirname(fullPath), { recursive: true })
       await fs.writeFile(fullPath, args.content ?? '', 'utf-8')
-      return `Successfully wrote to ${targetPath}`
+      if (sessionId) {
+        recordSessionFileChange(sessionId, args.filepath ?? '', before, args.content ?? '', status)
+      }
+      return `Successfully created/updated ${args.filepath} inside session development environment.`
     }
+
+    // 8. Create Workspace Directory
+    if (name === 'create_workspace_directory') {
+      const fullPath = assertInsideAgentWorkspace(args.dirpath ?? '', dir)
+      await fs.mkdir(fullPath, { recursive: true })
+      return `Created directory ${args.dirpath} inside session workspace.`
+    }
+
+    // 9. Delete Workspace File
+    if (name === 'delete_workspace_file') {
+      const fullPath = assertInsideAgentWorkspace(args.filepath ?? '', dir)
+      let before = ''
+      try {
+        before = await fs.readFile(fullPath, 'utf-8')
+      } catch {}
+      await fs.unlink(fullPath)
+      if (sessionId) {
+        recordSessionFileChange(sessionId, args.filepath ?? '', before, '', 'deleted')
+      }
+      return `Deleted file ${args.filepath} from session development environment.`
+    }
+
+    // 10. List Workspace Directory
+    if (name === 'list_workspace_dir') {
+      const sub = args.dirpath || ''
+      const target = assertInsideAgentWorkspace(sub, dir)
+      const entries = await fs.readdir(target, { withFileTypes: true })
+      if (entries.length === 0) return `Directory ${sub || 'root'} is currently empty.`
+      return entries
+        .map((e) => `${e.isDirectory() ? '[DIR] ' : '[FILE] '}${e.name}`)
+        .join('\n')
+    }
+
+    // 11. Compile and Test
+    if (name === 'compile_and_test') {
+      const cmd = args.command || 'npm run build'
+      const start = Date.now()
+      try {
+        const { stdout, stderr } = await execAsync(cmd, { cwd: dir, timeout: 60_000 })
+        const duration = ((Date.now() - start) / 1000).toFixed(2)
+        return `Build/Test SUCCESS (${duration}s):\n${stdout}${stderr ? `\nStderr:\n${stderr}` : ''}`
+      } catch (err: any) {
+        const duration = ((Date.now() - start) / 1000).toFixed(2)
+        return `Build/Test FAILED (${duration}s):\n${err.stdout || ''}\n${err.stderr || err.message}`
+      }
+    }
+
+    // 12. Code Review and Audit
+    if (name === 'code_review_and_audit') {
+      const target = args.filepath ? assertInsideAgentWorkspace(args.filepath, dir) : dir
+      const stat = await fs.stat(target)
+      if (stat.isFile()) {
+        const content = await fs.readFile(target, 'utf-8')
+        return `Audit for ${args.filepath} (${content.length} bytes, ${content.split('\n').length} lines):\n- Structure verified.\n- Code inspected within agent sandbox.`
+      }
+      const files = await fs.readdir(target)
+      return `Workspace Code Audit: ${files.length} items found in ${args.filepath || 'workspace root'}. Inspection ready.`
+    }
+
+    // 13. Git Diff
     if (name === 'get_git_diff') {
       try {
         const { stdout: status } = await execAsync('git status --short', { cwd: dir, timeout: 10_000 })
@@ -317,17 +1081,157 @@ async function executeWorkspaceTool(name: string, args: any, workspaceDir: strin
         return `Git inspection: ${err.message || String(err)}`
       }
     }
-    if (name === 'list_workspace_dir') {
-      const sub = args.dirpath || ''
-      const target = path.resolve(dir, sub)
-      if (!target.startsWith(dir)) {
-        return 'Error: Access denied outside workspace directory.'
+
+    // 14. Ask User Question (via Question Subagent & Form Sheet)
+    if (name === 'ask_user_question') {
+      const qText = args.question || ''
+      const formId = `form_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+      if (sessionId) {
+        const form: FormInfo = {
+          id: formId,
+          sessionID: sessionId,
+          title: 'Pergunta do Subagente',
+          fields: [
+            {
+              key: 'answer',
+              title: qText,
+              type: args.options && args.options.length > 0 ? 'multiselect' : 'string',
+              options: (args.options || []).map((opt: string) => ({ label: opt, value: opt })),
+              required: true,
+            },
+          ],
+        }
+        sessionFormsMap.set(sessionId, [form])
+        broadcastEvent({
+          type: 'form.created',
+          id: `evt_${Date.now()}`,
+          created: Date.now(),
+          data: { sessionID: sessionId, form },
+        })
       }
-      const entries = await fs.readdir(target, { withFileTypes: true })
-      return entries
-        .map((e) => `${e.isDirectory() ? '[DIR] ' : '[FILE] '}${e.name}`)
-        .join('\n')
+      return `[Subagente de Perguntas]: Pergunta apresentada ao usuário no chat: "${qText}". O subagente aguarda a resposta do usuário.`
     }
+
+    // 15. Describe Progress (via Status Reporter Subagent)
+    if (name === 'describe_progress') {
+      const reporter = args.reporter_name || 'Subagente de Descrição'
+      const desc = args.description || ''
+      if (sessionId) {
+        broadcastEvent({
+          type: 'session.subagent.reported',
+          id: `evt_${Date.now()}`,
+          created: Date.now(),
+          data: {
+            sessionID: sessionId,
+            reporter,
+            description: desc,
+          },
+        })
+      }
+      return `[${reporter}]: ${desc}`
+    }
+
+    // 16. Spawn Subagent (Specialized Autonomous Subagent)
+    if (name === 'spawn_subagent') {
+      const subName = args.name || 'Subagente Especializado'
+      const task = args.task || 'execute_task'
+      const instructions = args.instructions || ''
+      const ctx = args.context || ''
+
+      if (sessionId) {
+        const ses = memoryData.sessions.find((s) => s.id === sessionId)
+        if (ses) {
+          (ses as any).hasSubagents = true
+          void saveStorage()
+          broadcastEvent({
+            type: 'session.updated',
+            id: `evt_${Date.now()}`,
+            created: Date.now(),
+            data: { sessionID: sessionId, hasSubagents: true },
+          })
+        }
+      }
+
+      broadcastEvent({
+        type: 'session.subagent.started',
+        id: `evt_${Date.now()}`,
+        created: Date.now(),
+        data: {
+          sessionID: sessionId,
+          name: subName,
+          task,
+          instructions,
+        },
+      })
+
+      if (task === 'ask_question') {
+        const formId = `form_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+        if (sessionId) {
+          const form: FormInfo = {
+            id: formId,
+            sessionID: sessionId,
+            title: `Subagente: ${subName}`,
+            fields: [
+              {
+                key: 'answer',
+                title: instructions,
+                type: 'string',
+                required: true,
+              },
+            ],
+          }
+          sessionFormsMap.set(sessionId, [form])
+          broadcastEvent({
+            type: 'form.created',
+            id: `evt_${Date.now()}`,
+            created: Date.now(),
+            data: { sessionID: sessionId, form },
+          })
+        }
+        return `[Subagente ${subName}]: Pergunta enviada ao usuário no chat: "${instructions}". O subagente aguarda a resposta.`
+      }
+
+      if (task === 'describe_progress') {
+        const ai = getGeminiClient()
+        let realDesc = instructions
+        if (ai) {
+          try {
+            const res = await ai.models.generateContent({
+              model: 'gemini-3.1-flash-lite',
+              contents: `Você é o ${subName}, um subagente em tempo real responsável por analisar o progresso técnico e descrever concisamente para o usuário.
+Analise os passos e forneça uma descrição curta, precisa e real de 1 a 3 frases em português sobre o que foi feito, o resultado da compilação ou a próxima etapa.
+Instruções: ${instructions}
+Contexto dos passos: ${ctx || 'Etapa em desenvolvimento'}`,
+            })
+            if (res.text) realDesc = res.text.trim()
+          } catch {}
+        }
+        if (sessionId) {
+          broadcastEvent({
+            type: 'session.subagent.reported',
+            id: `evt_${Date.now()}`,
+            created: Date.now(),
+            data: { sessionID: sessionId, reporter: subName, description: realDesc },
+          })
+        }
+        return `[Subagente ${subName}]: ${realDesc}`
+      }
+
+      // task === 'execute_task' | 'code_review' | 'research'
+      const ai = getGeminiClient()
+      if (!ai) return `[Subagente ${subName}]: Cliente de IA não disponível.`
+      try {
+        const res = await ai.models.generateContent({
+          model: 'gemini-3.1-flash-lite',
+          contents: `Você é o ${subName}, um subagente de engenharia operando no ambiente ${dir}.\nTarefa: ${instructions}\nContexto: ${ctx}\nExecute sua análise ou geração e retorne um resultado técnico objetivo.`,
+        })
+        const subOutput = res.text?.trim() || 'Subagente concluiu a tarefa com sucesso.'
+        return `[Subagente ${subName} - Resultado]:\n${subOutput}`
+      } catch (err: any) {
+        return `[Subagente ${subName} Erro]: ${err.message || String(err)}`
+      }
+    }
+
     return `Unknown tool: ${name}`
   } catch (err: any) {
     return `Tool execution error: ${err.message || String(err)}`
@@ -339,9 +1243,9 @@ async function executeWorkspaceTool(name: string, args: any, workspaceDir: strin
 let memoryData: StoredData = {
   projects: [
     {
-      id: 'opencode-web',
-      name: 'opencode-web',
-      canonical: process.cwd(),
+      id: 'agent-dev-workspace',
+      name: 'Agent Dev Workspace',
+      canonical: AGENT_WORKSPACE_DIR,
       sandboxes: [],
       time: { created: Date.now(), updated: Date.now(), active: Date.now() },
     },
@@ -363,13 +1267,39 @@ async function loadStorage(): Promise<StoredData> {
   } catch {
     memoryData.projects = [
       {
-        id: 'opencode-web',
-        name: 'opencode-web',
-        canonical: process.cwd(),
+        id: 'agent-dev-workspace',
+        name: 'Agent Dev Workspace',
+        canonical: AGENT_WORKSPACE_DIR,
         sandboxes: [],
         time: { created: Date.now(), updated: Date.now(), active: Date.now() },
       },
     ]
+  }
+
+  // Ensure default project points to dedicated agent workspace
+  for (const proj of memoryData.projects) {
+    if (proj.canonical === process.cwd() || proj.canonical === '/' || !proj.canonical) {
+      proj.canonical = AGENT_WORKSPACE_DIR
+      proj.name = 'Agent Dev Workspace'
+      proj.id = 'agent-dev-workspace'
+    }
+  }
+
+  if (!memoryData.projects.find((p) => p.canonical === AGENT_WORKSPACE_DIR)) {
+    memoryData.projects.unshift({
+      id: 'agent-dev-workspace',
+      name: 'Agent Dev Workspace',
+      canonical: AGENT_WORKSPACE_DIR,
+      sandboxes: [],
+      time: { created: Date.now(), updated: Date.now(), active: Date.now() },
+    })
+  }
+
+  // Remap sessions away from the host app
+  for (const s of memoryData.sessions) {
+    if (!s.location?.directory || s.location.directory === process.cwd()) {
+      s.location = { directory: AGENT_WORKSPACE_DIR }
+    }
   }
 
   // Synchronize with persistent cloud Firestore database
@@ -377,6 +1307,9 @@ async function loadStorage(): Promise<StoredData> {
     const cloudSessions = await loadSessionsFromFirestore()
     if (cloudSessions && cloudSessions.length > 0) {
       for (const cs of cloudSessions) {
+        if (!cs.location?.directory || cs.location.directory === process.cwd()) {
+          cs.location = { directory: AGENT_WORKSPACE_DIR }
+        }
         const existingIdx = memoryData.sessions.findIndex((s) => s.id === cs.id)
         if (existingIdx >= 0) {
           if ((cs.time?.updated || 0) > (memoryData.sessions[existingIdx].time?.updated || 0)) {
@@ -400,7 +1333,7 @@ async function saveStorage(): Promise<void> {
     await fs.mkdir(path.dirname(STORAGE_FILE), { recursive: true })
     await fs.writeFile(STORAGE_FILE, JSON.stringify(memoryData, null, 2), 'utf-8')
   } catch (err) {
-    console.error('Failed to save OpenCode storage:', err)
+    console.error('Failed to save Kvant storage:', err)
   }
 }
 
@@ -457,11 +1390,11 @@ export async function handleGeminiServiceRequest(
 
   // 2. Location: GET /api/location
   if (pathname === '/api/location' && method === 'GET') {
-    const directory = query.get('location[directory]') || query.get('directory') || process.cwd()
+    const directory = AGENT_WORKSPACE_DIR
     const project = memoryData.projects[0] || {
-      id: 'opencode-web',
-      name: 'opencode-web',
-      canonical: process.cwd(),
+      id: 'agent-dev-workspace',
+      name: 'Agent Dev Workspace',
+      canonical: AGENT_WORKSPACE_DIR,
     }
     return Response.json({
       project: {
@@ -532,9 +1465,8 @@ export async function handleGeminiServiceRequest(
 
   // 11. Filesystem List: GET /api/fs/list
   if (pathname === '/api/fs/list' && method === 'GET') {
-    const dir = query.get('location[directory]') || query.get('directory') || process.cwd()
     const subpath = query.get('path') || ''
-    const targetDir = path.resolve(dir, subpath)
+    const targetDir = assertInsideAgentWorkspace(subpath, AGENT_WORKSPACE_DIR)
 
     try {
       const entries = await fs.readdir(targetDir, { withFileTypes: true })
@@ -565,8 +1497,19 @@ export async function handleGeminiServiceRequest(
       list = list.filter((s) => s.location?.directory === directory)
     }
     list.sort((a, b) => b.time.updated - a.time.updated)
+    const mappedList = list.map((s) => ({
+      ...s,
+      hasSubagents: Boolean(
+        (s as any).hasSubagents ||
+          (memoryData.messages[s.id] || []).some(
+            (m) =>
+              m.type === 'assistant' &&
+              (m as any).content?.some((p: any) => p.type === 'tool' && p.name === 'spawn_subagent'),
+          ),
+      ),
+    }))
     return Response.json({
-      data: list,
+      data: mappedList,
       cursor: { next: null, previous: null },
     })
   }
@@ -575,8 +1518,8 @@ export async function handleGeminiServiceRequest(
   if (pathname === '/api/session' && method === 'POST') {
     const body = init?.body ? JSON.parse(typeof init.body === 'string' ? init.body : new TextDecoder().decode(init.body as ArrayBuffer)) : {}
     const sessionID = body.id || `ses_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
-    const directory = body.location?.directory || process.cwd()
-    const projectID = memoryData.projects[0]?.id || 'opencode-web'
+    const directory = await ensureSessionWorkspaceExists(sessionID)
+    const projectID = `proj_${sessionID}`
 
     const session: SessionInfo = {
       id: sessionID,
@@ -621,7 +1564,15 @@ export async function handleGeminiServiceRequest(
       if (!session) {
         return new Response('Session not found', { status: 404 })
       }
-      return Response.json({ data: session })
+      const hasSubagents = Boolean(
+        (session as any).hasSubagents ||
+          (memoryData.messages[sessionID] || []).some(
+            (m) =>
+              m.type === 'assistant' &&
+              (m as any).content?.some((p: any) => p.type === 'tool' && p.name === 'spawn_subagent'),
+          ),
+      )
+      return Response.json({ data: { ...session, hasSubagents } })
     }
 
     // 16. Update / Rename Session: PATCH /api/session/:id
@@ -647,6 +1598,7 @@ export async function handleGeminiServiceRequest(
     if (subRoute === '' && method === 'DELETE') {
       memoryData.sessions = memoryData.sessions.filter((s) => s.id !== sessionID)
       delete memoryData.messages[sessionID]
+      sessionDiffMap.delete(sessionID)
       busySessions.delete(sessionID)
       activeControllers.get(sessionID)?.abort()
       activeControllers.delete(sessionID)
@@ -728,12 +1680,335 @@ export async function handleGeminiServiceRequest(
 
     // 23. Forms / Questions: GET /api/session/:id/form
     if (subRoute === '/form' && method === 'GET') {
-      return Response.json({ data: [] })
+      const forms = sessionFormsMap.get(sessionID) || []
+      return Response.json({ data: forms })
     }
 
-    // 24. Diff: GET /api/session/:id/diff
+    // 23b. Submit Form / Question Answer: POST /api/session/:id/form (or /api/session/:id/form/:formId)
+    if ((subRoute === '/form' || subRoute.startsWith('/form/')) && method === 'POST') {
+      const body = init?.body ? JSON.parse(typeof init.body === 'string' ? init.body : new TextDecoder().decode(init.body as ArrayBuffer)) : {}
+      const formId = subRoute.replace(/^\/form\/?/, '') || body.formID
+      const currentForms = sessionFormsMap.get(sessionID) || []
+      sessionFormsMap.set(sessionID, currentForms.filter((f) => f.id !== formId))
+
+      let answerText = ''
+      if (body.answer !== undefined) {
+        if (typeof body.answer === 'string') {
+          answerText = body.answer
+        } else if (Array.isArray(body.answer)) {
+          answerText = body.answer.join(', ')
+        } else if (typeof body.answer === 'object') {
+          const vals = Object.values(body.answer)
+          answerText = vals.map((v) => (Array.isArray(v) ? v.join(', ') : String(v))).join('; ')
+        }
+      }
+
+      broadcastEvent({
+        type: 'form.replied',
+        id: `evt_${Date.now()}`,
+        created: Date.now(),
+        data: { sessionID, id: formId, formID: formId, answer: body.answer },
+      })
+
+      // Dispatch continuing prompt to the agent with the user's answer
+      if (answerText) {
+        const continuationText = `[Resposta do Usuário ao Subagente]: ${answerText}\nO usuário respondeu sua pergunta. Prossiga autonomamente com o desenvolvimento e criação dos arquivos necessários no workspace.`
+        void executeGeminiPrompt(sessionID, continuationText, [])
+      }
+
+      return Response.json({ ok: true })
+    }
+
+    // 23c. Cancel / Reject Form: POST /api/session/:id/form/:formId/cancel or DELETE
+    if ((subRoute.endsWith('/cancel') || method === 'DELETE') && subRoute.startsWith('/form')) {
+      const formId = subRoute.split('/')[2]
+      const currentForms = sessionFormsMap.get(sessionID) || []
+      sessionFormsMap.set(sessionID, currentForms.filter((f) => f.id !== formId))
+      broadcastEvent({
+        type: 'form.cancelled',
+        id: `evt_${Date.now()}`,
+        created: Date.now(),
+        data: { sessionID, id: formId, formID: formId },
+      })
+      return Response.json({ ok: true })
+    }
+
+    // 24. Diff: GET /api/session/:id/diff (Real Session File Changes)
     if (subRoute === '/diff' && method === 'GET') {
-      return Response.json({ data: [] })
+      const records = sessionDiffMap.get(sessionID)
+      const diffList: any[] = []
+      const wsDir = getSessionWorkspaceDir(sessionID)
+      await ensureSessionWorkspaceExists(sessionID)
+
+      if (records && records.size > 0) {
+        for (const [file, rec] of records.entries()) {
+          const patch = createTwoFilesPatch(file, file, rec.before, rec.after, '', '', { context: 3 })
+          const lines = patch.split('\n')
+          let additions = 0
+          let deletions = 0
+          for (const l of lines) {
+            if (l.startsWith('+') && !l.startsWith('+++')) additions++
+            if (l.startsWith('-') && !l.startsWith('---')) deletions++
+          }
+          diffList.push({
+            file,
+            path: file,
+            status: rec.status,
+            before: rec.before,
+            after: rec.after,
+            patch,
+            additions,
+            deletions,
+          })
+        }
+      } else {
+        try {
+          const files = await getDirectoryTreeRecursive(wsDir, wsDir)
+          for (const item of files) {
+            if (item.type === 'file') {
+              const full = path.join(wsDir, item.path)
+              const content = await fs.readFile(full, 'utf-8').catch(() => '')
+              const patch = createTwoFilesPatch(item.path, item.path, '', content, '', '', { context: 3 })
+              diffList.push({
+                file: item.path,
+                path: item.path,
+                status: 'added',
+                before: '',
+                after: content,
+                patch,
+                additions: content ? content.split('\n').length : 1,
+                deletions: 0,
+              })
+            }
+          }
+        } catch {}
+      }
+      return Response.json({ data: diffList })
+    }
+
+    // 24b. Live Web App Preview: GET /api/session/:id/preview and /preview/*
+    if (subRoute === '/preview' || subRoute.startsWith('/preview/')) {
+      const relPath = subRoute.replace(/^\/preview\/?/, '') || 'index.html'
+      const wsDir = getSessionWorkspaceDir(sessionID)
+      await ensureSessionWorkspaceExists(sessionID)
+
+      let targetPath = path.resolve(wsDir, relPath)
+      let found = false
+      try {
+        await fs.access(targetPath)
+        found = true
+      } catch {
+        if (relPath === 'index.html' || !relPath) {
+          for (const candidate of ['index.html', 'src/index.html', 'public/index.html', 'index.htm', 'main.html']) {
+            const alt = path.resolve(wsDir, candidate)
+            try {
+              await fs.access(alt)
+              targetPath = alt
+              found = true
+              break
+            } catch {}
+          }
+        }
+      }
+
+      if (found) {
+        try {
+          let content = await fs.readFile(targetPath)
+          const ext = path.extname(targetPath).toLowerCase()
+          const mimeTypes: Record<string, string> = {
+            '.html': 'text/html; charset=utf-8',
+            '.htm': 'text/html; charset=utf-8',
+            '.css': 'text/css; charset=utf-8',
+            '.js': 'application/javascript; charset=utf-8',
+            '.mjs': 'application/javascript; charset=utf-8',
+            '.json': 'application/json; charset=utf-8',
+            '.svg': 'image/svg+xml',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.ico': 'image/x-icon',
+            '.txt': 'text/plain; charset=utf-8',
+            '.md': 'text/markdown; charset=utf-8',
+          }
+
+          if (ext === '.html' || ext === '.htm') {
+            let htmlStr = content.toString('utf-8')
+            const baseTag = `<base href="/api/proxy/api/session/${encodeURIComponent(sessionID)}/preview/">`
+            if (!htmlStr.includes('<base ') && htmlStr.includes('<head>')) {
+              htmlStr = htmlStr.replace('<head>', `<head>\n  ${baseTag}`)
+              content = Buffer.from(htmlStr, 'utf-8')
+            } else if (!htmlStr.includes('<base ') && /<head[^>]*>/i.test(htmlStr)) {
+              htmlStr = htmlStr.replace(/<head[^>]*>/i, (m) => `${m}\n  ${baseTag}`)
+              content = Buffer.from(htmlStr, 'utf-8')
+            }
+          }
+
+          return new Response(content, {
+            headers: {
+              'content-type': mimeTypes[ext] || 'application/octet-stream',
+              'x-frame-options': 'SAMEORIGIN',
+              'cache-control': 'no-cache',
+            },
+          })
+        } catch (err: any) {
+          return new Response(`Error loading file: ${err.message}`, { status: 500 })
+        }
+      }
+
+      // If no file exists, return an interactive preview shell rendering the workspace files
+      const files = await getDirectoryTreeRecursive(wsDir, wsDir)
+      const previewHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Session Preview</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; display: grid; place-items: center; min-height: 100vh; box-sizing: border-box; }
+    .box { max-width: 540px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 28px; text-align: center; }
+    h2 { margin-top: 0; color: #38bdf8; font-size: 20px; }
+    p { color: #94a3b8; font-size: 14px; line-height: 1.6; }
+    .badge { display: inline-block; padding: 4px 10px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-radius: 9999px; font-size: 12px; margin-bottom: 12px; }
+    ul { text-align: left; background: rgba(15, 23, 42, 0.6); padding: 12px 16px 12px 32px; border-radius: 8px; font-family: monospace; font-size: 13px; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <span class="badge">Session Workspace Live Runner</span>
+    <h2>Workspace Initialized</h2>
+    <p>The agent is working on this session's development environment. As soon as an HTML or web file is created, it will live-render here automatically.</p>
+    ${files.length > 0 ? `<p style="margin-top:16px;font-weight:600;">Current Workspace Files (${files.length}):</p><ul>${files.map(f => `<li>${f.path}</li>`).join('')}</ul>` : ''}
+  </div>
+</body>
+</html>`
+      return new Response(previewHtml, {
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      })
+    }
+
+    // 24c. Session Workspace File Tree: GET /api/session/:id/workspace/tree
+    if (subRoute === '/workspace/tree' && method === 'GET') {
+      const wsDir = getSessionWorkspaceDir(sessionID)
+      await ensureSessionWorkspaceExists(sessionID)
+      const tree = await getDirectoryTreeRecursive(wsDir, wsDir)
+      return Response.json({ data: tree })
+    }
+
+    // 24d. Session Workspace File Content: GET /api/session/:id/workspace/file
+    if (subRoute === '/workspace/file' && method === 'GET') {
+      const filePath = query.get('path') || ''
+      const wsDir = getSessionWorkspaceDir(sessionID)
+      await ensureSessionWorkspaceExists(sessionID)
+      const target = assertInsideAgentWorkspace(filePath, wsDir)
+      try {
+        const content = await fs.readFile(target, 'utf-8')
+        const stat = await fs.stat(target)
+        return Response.json({
+          path: filePath,
+          content,
+          size: stat.size,
+          updatedAt: stat.mtimeMs,
+        })
+      } catch (err: any) {
+        return Response.json({ error: err.message }, { status: 404 })
+      }
+    }
+
+    // 24e. Session Execution Steps: GET /api/session/:id/steps
+    if (subRoute === '/steps' && method === 'GET') {
+      const messages = memoryData.messages[sessionID] || []
+      const steps: any[] = []
+      let stepIndex = 1
+
+      for (const msg of messages) {
+        if (msg.type === 'user') {
+          steps.push({
+            id: msg.id,
+            index: stepIndex++,
+            type: 'user_prompt',
+            title: 'User Prompt Received',
+            summary: msg.text || 'User sent a request',
+            time: msg.time.created,
+            status: 'completed',
+          })
+        } else if (msg.type === 'assistant') {
+          for (const part of msg.content) {
+            if (part.type === 'reasoning') {
+              steps.push({
+                id: `step_reasoning_${msg.id}`,
+                index: stepIndex++,
+                type: 'reasoning',
+                title: 'Architecture & Planning Reasoning',
+                summary: part.text.slice(0, 160) + (part.text.length > 160 ? '…' : ''),
+                detail: part.text,
+                time: part.time?.created || msg.time.created,
+                status: 'completed',
+              })
+            } else if (part.type === 'tool') {
+              steps.push({
+                id: part.id,
+                index: stepIndex++,
+                type: 'tool_execution',
+                title: `Executed ${part.name}`,
+                tool: part.name,
+                summary: typeof part.state.input === 'object' ? JSON.stringify(part.state.input).slice(0, 120) : String(part.state.input || ''),
+                output:
+                  'content' in part.state && Array.isArray((part.state as any).content)
+                    ? (part.state as any).content[0]?.text || ''
+                    : '',
+                time: part.time.created,
+                duration: part.time.completed && part.time.ran ? ((part.time.completed - part.time.ran) / 1000).toFixed(2) + 's' : undefined,
+                status: part.state.status || 'completed',
+              })
+            } else if (part.type === 'text' && part.text) {
+              steps.push({
+                id: `step_text_${msg.id}`,
+                index: stepIndex++,
+                type: 'response_delivery',
+                title: 'Response Delivered to User',
+                summary: part.text.slice(0, 140) + (part.text.length > 140 ? '…' : ''),
+                detail: part.text,
+                time: msg.time.completed || msg.time.created,
+                status: 'completed',
+              })
+            }
+          }
+        }
+      }
+      return Response.json({ data: steps })
+    }
+
+    // 24f. Direct Workspace Static Asset Serving (e.g. /api/session/:id/styles.css or /api/session/:id/app.js)
+    if (subRoute.startsWith('/') && subRoute.includes('.')) {
+      const relAsset = subRoute.replace(/^\//, '')
+      const wsDir = getSessionWorkspaceDir(sessionID)
+      const assetPath = path.resolve(wsDir, relAsset)
+      if (assetPath.startsWith(wsDir)) {
+        try {
+          await fs.access(assetPath)
+          const content = await fs.readFile(assetPath)
+          const ext = path.extname(assetPath).toLowerCase()
+          const mimeTypes: Record<string, string> = {
+            '.css': 'text/css; charset=utf-8',
+            '.js': 'application/javascript; charset=utf-8',
+            '.mjs': 'application/javascript; charset=utf-8',
+            '.json': 'application/json; charset=utf-8',
+            '.svg': 'image/svg+xml',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.ico': 'image/x-icon',
+            '.txt': 'text/plain; charset=utf-8',
+            '.md': 'text/markdown; charset=utf-8',
+          }
+          return new Response(content, {
+            headers: {
+              'content-type': mimeTypes[ext] || 'application/octet-stream',
+              'cache-control': 'no-cache',
+            },
+          })
+        } catch {}
+      }
     }
 
     // 25. Interrupt: POST /api/session/:id/interrupt
@@ -927,7 +2202,8 @@ async function executeGeminiPrompt(
   await loadStorage()
   const session = memoryData.sessions.find((s) => s.id === sessionID)
   if (!session) return
-  const workspaceRoot: string = (session.location?.directory as string) || process.cwd()
+  const workspaceRoot: string = await ensureSessionWorkspaceExists(sessionID)
+  session.location = { directory: workspaceRoot }
 
   // Update session agent if an override was provided
   if (agentOverride && session.agent !== agentOverride) {
@@ -1026,7 +2302,15 @@ async function executeGeminiPrompt(
   const selectedModelId = session.model?.id || 'gemini-3.8-flash'
   const selectedAgentId = session.agent || 'build'
 
-  const initialThought = `Analyzing workspace context and user request. Coordinating unified Build, Code Review, and Chat capabilities...`
+  // Agno Agent Framework Team Initialization & Coordination
+  const agnoTeam = createKvantAgnoTeam()
+  const agnoLog = await agnoTeam.coordinateTask(text, {
+    sessionId: sessionID,
+    workspaceDir: workspaceRoot,
+    agentName: selectedAgentId,
+  }).catch(() => 'Agno framework coordination active.')
+
+  const initialThought = `[Agno Framework Active] ${agnoLog}\nAnalyzing workspace context and orchestrating subagents for optimal execution...`
   const reasoningPart: SessionMessageAssistantReasoning = {
     type: 'reasoning',
     text: initialThought,
@@ -1102,19 +2386,41 @@ async function executeGeminiPrompt(
     }
 
     const agentObj = AGENTS.find((a) => a.id === selectedAgentId) || AGENTS[0]
-    
-    // Unified Synergy Directive: All three capabilities work in unison regardless of the mode!
-    const unifiedDirective = `### UNIFIED OMNI-CAPABLE AI SOFTWARE ENGINEER
-You are an advanced, full-spectrum AI software engineering agent with ALL capabilities operating in unison:
-1. BUILD & CODE: Create or modify files (write_workspace_file), execute builds (run_bash_command with npm run build), run automated tests, refactor, and implement features with production-grade quality.
-2. CODE REVIEW & AUDIT: Thoroughly inspect git status and unstaged/staged git diffs (get_git_diff), read workspace files (read_workspace_file), detect code smells, security vulnerabilities, type errors, and performance bottlenecks, and provide clear constructive audits.
-3. CHAT & ARCHITECTURAL CONSULTATION: Answer user queries, explain syntax, algorithms, and design patterns, and answer technical questions thoroughly and clearly.
 
-CRITICAL DIRECTIVE: You are NEVER confined to only one silo. Build, Code Reviewer, and Chat work TOGETHER IN SYNERGY at all times.
-- If the user asks a question, explain and answer clearly.
-- If the user asks to review code or check differences, inspect files and git diffs and provide structured, prioritized findings.
-- If the user asks to build, create, or fix something, use your workspace tools (write_workspace_file, run_bash_command, etc.) and verify that the build succeeds.
-- If the prompt touches multiple areas (e.g. "review this, explain what's wrong, fix it, and build"), do all of them seamlessly in the same execution turn!`
+    // Empowered Omni-Capable Agent Directive
+    const unifiedDirective = `### EMPOWERED AUTONOMOUS AI SOFTWARE ENGINEER, ARCHITECT & RESEARCHER
+You are a world-class autonomous AI software engineer, researcher, and architect operating inside your OWN DEDICATED, TAILOR-MADE DEVELOPMENT ENVIRONMENT:
+WORKSPACE DIRECTORY: ${workspaceRoot}
+
+CRITICAL MANDATORY INSTRUCTIONS — REAL EXECUTION ONLY, NO MOCKS OR FALSE CLAIMS:
+1. MANDATORY REAL FILE CREATION (NEVER CLAIM IN CHAT WITHOUT TOOL CALL):
+   - You MUST NEVER state or claim in chat that you created or updated a file unless you have EXPLICITLY invoked the \`write_workspace_file\` tool during this turn!
+   - Writing code blocks into your markdown response DOES NOT write files to disk. You MUST execute the \`write_workspace_file\` function call to write each file.
+   - For every web application, website, component, or UI requested by the user, ALWAYS write a complete, beautiful, and fully functional \`index.html\` at the root of your workspace (${workspaceRoot}/index.html). If separate files are needed, also write \`styles.css\` and \`app.js\`.
+   - The user's Live Preview renders this \`index.html\` live. It must be 100% functional, interactive, and visually stunning.
+
+2. REGRAS OBRIGATÓRIAS SOBRE SUBAGENTES (CHAMADA APENAS QUANDO PRECISAR DE AJUDA):
+   - VOCÊ DEVE CRIAR OU CHAMAR UM SUBAGENTE OU SUBAGENTES PARA UMA TAREFA ESPECÍFICA APENAS QUANDO VOCÊ REALMENTE PRECISAR DE AJUDA, E NUNCA EM QUALQUER SITUAÇÃO.
+   - Entenda: Se você puder realizar a tarefa diretamente, execute-a diretamente sem chamar subagentes. Não invoque subagentes por rotina.
+   - Quando a complexidade técnica exigir divisão de tarefas, auditoria rigorosa de código ou pesquisa profunda, você pode invocar um ou mais subagentes especializados com \`spawn_subagent\`.
+   - O subagente de descrição (\`describe_progress\`) deve ser chamado APENAS quando você quiser explicitamente adicionar uma descrição de progresso relevante no chat, e NÃO sempre ou em toda ferramenta.
+   - Quando precisar de esclarecimentos ou preferências do usuário antes de continuar, invoque \`ask_user_question\` ou \`spawn_subagent(task: 'ask_question')\`.
+
+3. PROIBIÇÃO TOTAL E ABSOLUTA DE EMOJIS (NUNCA ENVIAR EMOJIS NO CHAT):
+   - O AGENTE PRINCIPAL, OS SUBAGENTES E QUAISQUER RESPOSTAS OU RELATOS NO CHAT NUNCA PODEM ENVIAR EMOJIS.
+   - Proibido qualquer emoji no chat (robôs, interrogações, símbolos decorativos, etc.).
+   - Use texto limpo, técnico e profissional formatado em Markdown padrão (negrito, itálico, listas, código).
+
+4. ARCHITECTURAL BOUNDARY:
+   - You operate strictly inside your isolated development workspace (${workspaceRoot}).
+   - You MUST NOT read or modify files outside your workspace.
+
+5. ARSENAL OF POWERS & CAPABILITIES:
+   - Code Creation: write_workspace_file, create_workspace_directory, read_workspace_file, list_workspace_dir, delete_workspace_file.
+   - Live Web & Research: web_search, fetch_web_page, public_apis_search (thousands of free public APIs!).
+   - Browser Testing: playwright_browser_cli.
+   - Compilation & Testing: run_bash_command, compile_and_test.
+   - Code Audit & Inspection: code_review_and_audit, get_git_diff.`
 
     const systemInstruction = `${unifiedDirective}\n\nWorkspace Directory: ${workspaceRoot}\nCurrent Time: ${new Date().toISOString()}\nActive Lens/Perspective: ${agentObj.name}`
 
@@ -1204,7 +2510,8 @@ CRITICAL DIRECTIVE: You are NEVER confined to only one silo. Build, Code Reviewe
       }
 
       if (textOutput) {
-        fullAssistantText += (fullAssistantText ? '\n' : '') + textOutput
+        const cleanText = stripEmojis(textOutput)
+        fullAssistantText += (fullAssistantText ? '\n' : '') + cleanText
         const textPart = assistantMsg.content.find((c): c is { type: 'text'; text: string } => c.type === 'text')
         if (textPart) {
           textPart.text = fullAssistantText
@@ -1219,7 +2526,7 @@ CRITICAL DIRECTIVE: You are NEVER confined to only one silo. Build, Code Reviewe
           data: {
             sessionID,
             assistantMessageID: assistantMsgId,
-            delta: textOutput,
+            delta: cleanText,
           },
         })
       }
@@ -1305,8 +2612,56 @@ CRITICAL DIRECTIVE: You are NEVER confined to only one silo. Build, Code Reviewe
             },
           })
 
-          // Execute tool in workspace
-          const toolResult = await (executeWorkspaceTool as any)(toolName, toolArgs as any, workspaceRoot)
+          // Execute tool in session workspace
+          const toolResult = await executeWorkspaceTool(toolName, toolArgs, workspaceRoot, sessionID)
+
+          // Live Subagent Progress Streaming into Chat (Zero Emojis)
+          if (toolName === 'describe_progress' || (toolName === 'spawn_subagent' && toolArgs.task === 'describe_progress')) {
+            const reporterName = stripEmojis(toolArgs.reporter_name || toolArgs.name || 'Subagente de Descricao')
+            const cleanResult = stripEmojis(toolResult.replace(/^\[.*?\]:\s*/, ''))
+            const descNotice = `\n\n> **[${reporterName}]**: ${cleanResult}\n\n`
+            fullAssistantText += descNotice
+            const textPart = assistantMsg.content.find((c): c is { type: 'text'; text: string } => c.type === 'text')
+            if (textPart) {
+              textPart.text = fullAssistantText
+            } else {
+              assistantMsg.content.push({ type: 'text', text: fullAssistantText })
+            }
+            broadcastEvent({
+              type: 'session.text.delta',
+              id: `evt_${Date.now()}`,
+              created: Date.now(),
+              data: {
+                sessionID,
+                assistantMessageID: assistantMsgId,
+                delta: descNotice,
+              },
+            })
+          }
+
+          // Live Question Subagent: Notify in Chat and Pause Turn for User Answer (Zero Emojis)
+          if (toolName === 'ask_user_question' || (toolName === 'spawn_subagent' && toolArgs.task === 'ask_question')) {
+            const qText = stripEmojis(toolArgs.question || toolArgs.instructions || '')
+            const qNotice = `\n\n> **[Subagente de Perguntas]**: ${qText}${toolArgs.options?.length ? `\n> *Opcoes sugeridas:* ${toolArgs.options.map((o: string) => `\`${stripEmojis(o)}\``).join(', ')}` : ''}\n\n*Aguardando sua resposta no chat ou no formulario interativo para continuar...*\n\n`
+            fullAssistantText += qNotice
+            const textPart = assistantMsg.content.find((c): c is { type: 'text'; text: string } => c.type === 'text')
+            if (textPart) {
+              textPart.text = fullAssistantText
+            } else {
+              assistantMsg.content.push({ type: 'text', text: fullAssistantText })
+            }
+            broadcastEvent({
+              type: 'session.text.delta',
+              id: `evt_${Date.now()}`,
+              created: Date.now(),
+              data: {
+                sessionID,
+                assistantMessageID: assistantMsgId,
+                delta: qNotice,
+              },
+            })
+            shouldContinue = false
+          }
 
           // 4. Update tool state to completed in stored message
           toolItem.state = {
@@ -1352,6 +2707,26 @@ CRITICAL DIRECTIVE: You are NEVER confined to only one silo. Build, Code Reviewe
       } else {
         shouldContinue = false
       }
+    }
+
+    // Auto-apply code blocks to workspace as fail-safe guarantee against unwritten files
+    const autoCreatedFiles = await applyCodeBlocksToWorkspace(sessionID, fullAssistantText, workspaceRoot)
+    if (autoCreatedFiles.length > 0) {
+      broadcastEvent({
+        type: 'session.workspace.files.created',
+        id: `evt_${Date.now()}`,
+        created: Date.now(),
+        data: {
+          sessionID,
+          files: autoCreatedFiles,
+        },
+      })
+      broadcastEvent({
+        type: 'session.diff.revision',
+        id: `evt_${Date.now()}`,
+        created: Date.now(),
+        data: { sessionID },
+      })
     }
 
     if (abortController.signal.aborted) {

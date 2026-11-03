@@ -10,4 +10,4 @@ dist
 claude-app-screenshots/
 .playwright-cli/
 .memsearch/
-opencode.jsonc
+Kvant.jsonc

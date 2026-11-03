@@ -46,13 +46,17 @@ import { PermissionBanner } from '~/components/PermissionBanner'
 import { QuestionSheet } from '~/components/QuestionSheet'
 import { useShell } from '~/components/shell'
 import { useSessionDiff } from '~/lib/session-diff-client'
-import SessionDiffPanel from '~/components/SessionDiffPanel'
+import SessionStudioPanel, { type StudioTab } from '~/components/SessionStudioPanel'
 import {
   ArrowLeftIcon,
   ChevronDownIcon,
   DiffIcon,
+  EyeIcon,
+  FolderIcon,
+  GitBranchIcon,
   MenuIcon,
   PencilIcon,
+  StepsIcon,
   TrashIcon,
 } from '~/components/icons'
 import { ThinkingIndicator } from '~/components/ThinkingIndicator'
@@ -115,6 +119,15 @@ function SessionPage() {
         variant: session.model.variant,
       }
     : undefined
+  const hasSubagents = Boolean(
+    session?.hasSubagents ||
+      Boolean(session?.parentID) ||
+      (messages.data ?? []).some(
+        (m) =>
+          m.type === 'assistant' &&
+          m.content.some((p) => p.type === 'tool' && p.name === 'spawn_subagent'),
+      ),
+  )
   const [error, setError] = React.useState<string>()
   const [notice, setNotice] = React.useState<string>()
   const [renameOpen, setRenameOpen] = React.useState(false)
@@ -125,9 +138,17 @@ function SessionPage() {
   const composer = React.useRef<ComposerHandle>(null)
   const scroll = React.useRef<HTMLDivElement>(null)
   const stick = React.useRef(true)
-  const [diffOpen, setDiffOpen] = React.useState(false)
-  const diff = useSessionDiff(sessionId, directory, undefined, [], diffOpen)
+  const [studioOpen, setStudioOpen] = React.useState(false)
+  const [studioTab, setStudioTab] = React.useState<StudioTab>('preview')
+  const diff = useSessionDiff(
+    sessionId,
+    directory,
+    undefined,
+    [],
+    studioOpen && studioTab === 'diff',
+  )
   const [desktop, setDesktop] = React.useState(false)
+  const [stoppedByUser, setStoppedByUser] = React.useState(false)
 
   React.useEffect(() => {
     const media = window.matchMedia('(min-width: 1024px)')
@@ -174,6 +195,7 @@ function SessionPage() {
   const handleSend = async (text: string, attachments: MessageAttachment[]) => {
     if (!session) return
     setError(undefined)
+    setStoppedByUser(false)
     qc.setQueryData(['session-error', sessionId], null)
     if (modelRef) recordModelUse(modelRef)
     stick.current = true
@@ -292,8 +314,15 @@ function SessionPage() {
         <Link to="/">Start a new one</Link>
       </div>
     )
-  const diffPanel = (
-    <SessionDiffPanel diff={diff} onClose={() => setDiffOpen(false)} />
+  const studioPanel = (
+    <SessionStudioPanel
+      sessionId={sessionId}
+      activeTab={studioTab}
+      onTabChange={setStudioTab}
+      onClose={() => setStudioOpen(false)}
+      diff={diff}
+      isBusy={busy}
+    />
   )
 
   return (
@@ -324,6 +353,14 @@ function SessionPage() {
               <span className={styles.title}>
                 {session?.title || 'Untitled session'}
               </span>
+              {hasSubagents && (
+                <span
+                  className={styles.subagentBadge}
+                  title="O agente principal adicionou subagente(s) para ajudar nesta tarefa"
+                >
+                  <GitBranchIcon size={13} />
+                </span>
+              )}
               {session && !session.parentID && (
                 <details className={styles.titleMenu}>
                   <summary aria-label="Session actions">
@@ -351,17 +388,73 @@ function SessionPage() {
                 ? 'Read-only subagent session'
                 : project
                   ? projectName(project)
-                  : directory}
+                  : directory.includes('sessions-workspaces') || directory.includes('agent-workspace')
+                    ? 'Session Dev Environment'
+                    : directory}
             </span>
           </div>
-          <button
-            type="button"
-            className={styles.iconButton}
-            onClick={() => setDiffOpen((open) => !open)}
-            aria-label="Open session changes"
-          >
-            <DiffIcon size={17} />
-          </button>
+          <div className={styles.headerActions}>
+            <button
+              type="button"
+              className={`${styles.iconButton} ${studioOpen && studioTab === 'preview' ? styles.iconButtonActive : ''}`}
+              onClick={() => {
+                if (studioOpen && studioTab === 'preview') setStudioOpen(false)
+                else {
+                  setStudioTab('preview')
+                  setStudioOpen(true)
+                }
+              }}
+              title="Web App Live Preview"
+              aria-label="Web App Live Preview"
+            >
+              <EyeIcon size={17} />
+            </button>
+            <button
+              type="button"
+              className={`${styles.iconButton} ${studioOpen && studioTab === 'files' ? styles.iconButtonActive : ''}`}
+              onClick={() => {
+                if (studioOpen && studioTab === 'files') setStudioOpen(false)
+                else {
+                  setStudioTab('files')
+                  setStudioOpen(true)
+                }
+              }}
+              title="Session Files & Code"
+              aria-label="Session Files & Code"
+            >
+              <FolderIcon size={17} />
+            </button>
+            <button
+              type="button"
+              className={`${styles.iconButton} ${studioOpen && studioTab === 'steps' ? styles.iconButtonActive : ''}`}
+              onClick={() => {
+                if (studioOpen && studioTab === 'steps') setStudioOpen(false)
+                else {
+                  setStudioTab('steps')
+                  setStudioOpen(true)
+                }
+              }}
+              title="Execution Steps Timeline"
+              aria-label="Execution Steps Timeline"
+            >
+              <StepsIcon size={17} />
+            </button>
+            <button
+              type="button"
+              className={`${styles.iconButton} ${studioOpen && studioTab === 'diff' ? styles.iconButtonActive : ''}`}
+              onClick={() => {
+                if (studioOpen && studioTab === 'diff') setStudioOpen(false)
+                else {
+                  setStudioTab('diff')
+                  setStudioOpen(true)
+                }
+              }}
+              title="Session Changes (Diff)"
+              aria-label="Session Changes (Diff)"
+            >
+              <DiffIcon size={17} />
+            </button>
+          </div>
         </header>
         <div
           className={styles.scroll}
@@ -396,20 +489,51 @@ function SessionPage() {
                 </button>
               </div>
             )}
-            {busy && (
-              <ThinkingIndicator
-                agentName={session?.agent}
-                modelName={session?.model?.id}
-                activeThought={
-                  visible.at(-1)?.type === 'assistant'
-                    ? (visible.at(-1) as any).content
-                        ?.filter((c: any) => c.type === 'reasoning')
-                        ?.map((c: any) => c.text)
-                        ?.join('\n')
-                    : undefined
+            {(() => {
+              const lastMessage = visible.at(-1)
+              const isAssistantActive = busy && lastMessage?.type === 'assistant'
+              const lastAssistantContent = isAssistantActive ? (lastMessage as any).content : undefined
+              const lastPart = lastAssistantContent?.at(-1)
+
+              let activePhase: 'working' | 'searching' | 'reasoning' | 'tool' | 'writing' | 'stopped' = 'working'
+              let activeLabel = 'Thinking…'
+              let activeReasoningText: string | undefined = undefined
+
+              if (stoppedByUser && !busy) {
+                activePhase = 'stopped'
+                activeLabel = 'Stopped by you'
+              } else if (busy) {
+                if (lastPart?.type === 'reasoning' && !lastPart.time?.completed) {
+                  activePhase = 'reasoning'
+                  activeLabel = 'Reasoning…'
+                  activeReasoningText = lastPart.text
+                } else if (lastPart?.type === 'tool' && ['running', 'streaming'].includes(lastPart.state?.status)) {
+                  activePhase = lastPart.name === 'subagent' ? 'searching' : 'tool'
+                  activeLabel = lastPart.name === 'subagent'
+                    ? 'Subagent working…'
+                    : `Running ${lastPart.name}…`
+                } else if (lastPart?.type === 'text') {
+                  activePhase = 'writing'
+                  activeLabel = 'Writing response…'
+                } else {
+                  activePhase = 'working'
+                  activeLabel = 'Thinking…'
                 }
-              />
-            )}
+              }
+
+              if (!busy && !stoppedByUser) return null
+
+              return (
+                <ThinkingIndicator
+                  state={{
+                    running: busy,
+                    phase: activePhase,
+                    label: activeLabel,
+                    stopped: stoppedByUser && !busy,
+                  }}
+                />
+              )
+            })()}
           </div>
         </div>
 
@@ -447,7 +571,12 @@ function SessionPage() {
               placeholder="Reply…"
               onSend={handleSend}
               busy={busy}
-              onAbort={() => run(() => abortSession(sessionId, directory))}
+              onAbort={() =>
+                run(async () => {
+                  setStoppedByUser(true)
+                  await abortSession(sessionId, directory)
+                })
+              }
               directory={directory}
               modelRef={modelRef}
               onModelChange={(model) => changeSelection({ model })}
@@ -504,13 +633,13 @@ function SessionPage() {
           }
         />
       </div>
-      {desktop && diffOpen && (
-        <aside className={styles.diffSidebar}>{diffPanel}</aside>
+      {desktop && studioOpen && (
+        <aside className={styles.diffSidebar}>{studioPanel}</aside>
       )}
       {!desktop && (
         <Drawer.Root
-          open={diffOpen}
-          onOpenChange={setDiffOpen}
+          open={studioOpen}
+          onOpenChange={setStudioOpen}
           direction="right"
         >
           <Drawer.Portal>
@@ -520,9 +649,9 @@ function SessionPage() {
               aria-describedby={undefined}
             >
               <Drawer.Title className={styles.srOnly}>
-                Session changes
+                Session Development Studio
               </Drawer.Title>
-              {diffPanel}
+              {studioPanel}
             </Drawer.Content>
           </Drawer.Portal>
         </Drawer.Root>
