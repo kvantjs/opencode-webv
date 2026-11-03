@@ -187,3 +187,45 @@ export const BotIcon = (p: IconProps) => (
     <circle cx="15" cy="14" r="1" fill="currentColor" stroke="none" />
   </Icon>
 )
+
+export const WrenchIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+  </Icon>
+)
+
+export const ShieldIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    <path d="m9 12 2 2 4-4" />
+  </Icon>
+)
+
+export const ChatIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </Icon>
+)
+
+export const TerminalIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <polyline points="4 17 10 11 4 5" />
+    <line x1="12" y1="19" x2="20" y2="19" />
+  </Icon>
+)
+
+export const SparklesIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3z" />
+  </Icon>
+)
+
+export const BrainIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-3 3 3 3 0 0 0 .5 1.7A3 3 0 0 0 6 15a3 3 0 0 0 3 3 3 3 0 0 0 3-3" />
+    <path d="M12 5a3 3 0 0 1 3 3 3 3 0 0 1 3 3 3 3 0 0 1-.5 1.7A3 3 0 0 1 18 15a3 3 0 0 1-3 3 3 3 0 0 1-3-3" />
+    <path d="M12 5v14" />
+  </Icon>
+)
+
+

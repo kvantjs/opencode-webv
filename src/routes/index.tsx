@@ -142,7 +142,12 @@ function NewSessionPage() {
     )
     let session: Session | undefined
     try {
-      session = await createSession(directory ?? project.worktree)
+      session = await createSession(
+        directory ?? project.worktree,
+        undefined,
+        agentName,
+        modelRef,
+      )
       // Make the session visible to the sidebar and the session route
       // immediately, without waiting for the SSE event.
       const created = session

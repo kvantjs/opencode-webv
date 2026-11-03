@@ -55,6 +55,7 @@ import {
   PencilIcon,
   TrashIcon,
 } from '~/components/icons'
+import { ThinkingIndicator } from '~/components/ThinkingIndicator'
 import styles from './session.module.css'
 
 export const Route = createFileRoute('/session/$sessionId')({
@@ -127,6 +128,7 @@ function SessionPage() {
   const [diffOpen, setDiffOpen] = React.useState(false)
   const diff = useSessionDiff(sessionId, directory, undefined, [], diffOpen)
   const [desktop, setDesktop] = React.useState(false)
+
   React.useEffect(() => {
     const media = window.matchMedia('(min-width: 1024px)')
     const update = () => setDesktop(media.matches)
@@ -395,14 +397,22 @@ function SessionPage() {
               </div>
             )}
             {busy && (
-              <div className={styles.typing}>
-                <span />
-                <span />
-                <span />
-              </div>
+              <ThinkingIndicator
+                agentName={session?.agent}
+                modelName={session?.model?.id}
+                activeThought={
+                  visible.at(-1)?.type === 'assistant'
+                    ? (visible.at(-1) as any).content
+                        ?.filter((c: any) => c.type === 'reasoning')
+                        ?.map((c: any) => c.text)
+                        ?.join('\n')
+                    : undefined
+                }
+              />
             )}
           </div>
         </div>
+
         {session && !session.parentID && (
           <div className={styles.composerWrap}>
             <PermissionBanner sessionIds={requestIds} directory={directory} />

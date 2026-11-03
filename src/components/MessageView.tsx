@@ -6,7 +6,7 @@ import type { Message, Part, ReasoningPart, ToolPart } from '~/lib/oc'
 import { duration } from '~/lib/format'
 import { Markdown } from './Markdown'
 import { ChatImage } from './ChatImage'
-import { CheckIcon, ChevronRightIcon, ForkIcon, XIcon } from './icons'
+import { BrainIcon, CheckIcon, ChevronRightIcon, ForkIcon, XIcon } from './icons'
 import styles from './MessageView.module.css'
 
 export function isFinishedAssistantTurn(message: Message) {
@@ -135,10 +135,15 @@ export const MessageView = React.memo(function MessageView({
       <div className={styles.assistant}>
         {groupParts(message.content).map((group, index) =>
           group.kind === 'reasoning' ? (
-            <details key={index} className={styles.reasoning}>
+            <details
+              key={index}
+              className={styles.reasoning}
+              open={!message.time?.completed}
+            >
               <summary>
-                <ChevronRightIcon size={13} />
-                {reasoningLabel(group.parts)}
+                <ChevronRightIcon size={13} className={styles.disclosure} />
+                <BrainIcon size={14} className={styles.thinkingIcon} />
+                <span>{reasoningLabel(group.parts)}</span>
               </summary>
               <div className={styles.reasoningBody}>
                 {group.parts.map((p, i) => (

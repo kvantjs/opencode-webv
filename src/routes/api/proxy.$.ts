@@ -52,10 +52,11 @@ async function proxy({
   } catch (err) {
     return Response.json(
       {
-        error: 'opencode-unreachable',
-        message: 'Could not reach the local OpenCode service',
+        error: 'service-unreachable',
+        message: 'Could not reach the Cloud Web Workspace service',
         detail: err instanceof Error ? err.message : String(err),
       },
+
       { status: 502 },
     )
   }

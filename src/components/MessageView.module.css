@@ -159,6 +159,24 @@
   transform: rotate(90deg);
 }
 
+.thinkingIcon {
+  color: var(--accent, #6366f1);
+  animation: pulseGlowIcon 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulseGlowIcon {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+
 .toolName {
   font-family: var(--font-mono);
   font-weight: 600;

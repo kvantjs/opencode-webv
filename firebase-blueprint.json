@@ -1,0 +1,134 @@
+{
+  "entities": {
+    "Session": {
+      "title": "Session",
+      "description": "A web AI coding and assistant session",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique session identifier"
+        },
+        "userId": {
+          "type": "string",
+          "description": "User UID who owns this session"
+        },
+        "title": {
+          "type": "string",
+          "description": "Session title"
+        },
+        "agentMode": {
+          "type": "string",
+          "description": "Mode of the agent (unified, build, chat, review)"
+        },
+        "model": {
+          "type": "string",
+          "description": "Gemini model selected"
+        },
+        "directory": {
+          "type": "string",
+          "description": "Target workspace directory or project context"
+        },
+        "status": {
+          "type": "string",
+          "description": "Session status (idle, thinking, executing, completed, error)"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp created"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp updated"
+        }
+      },
+      "required": ["id", "userId", "title", "createdAt", "updatedAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Chat message or agent reasoning and execution event",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique message identifier"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "Parent session identifier"
+        },
+        "userId": {
+          "type": "string",
+          "description": "User UID who sent or initiated this message"
+        },
+        "role": {
+          "type": "string",
+          "description": "Role of the message sender (user, assistant, system)"
+        },
+        "content": {
+          "type": "string",
+          "description": "Rendered message content"
+        },
+        "thoughts": {
+          "type": "string",
+          "description": "Thinking reasoning process stream"
+        },
+        "status": {
+          "type": "string",
+          "description": "Status of the message"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp created"
+        }
+      },
+      "required": ["id", "sessionId", "userId", "role", "createdAt"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "Web project metadata and workspace config",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique project identifier"
+        },
+        "userId": {
+          "type": "string",
+          "description": "User UID who owns this project"
+        },
+        "name": {
+          "type": "string",
+          "description": "Project name"
+        },
+        "directory": {
+          "type": "string",
+          "description": "Project directory"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp created"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp updated"
+        }
+      },
+      "required": ["id", "userId", "name", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/sessions/{sessionId}": {
+      "schema": "Session",
+      "description": "Collection of user coding and chat sessions"
+    },
+    "/sessions/{sessionId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Subcollection of messages and thought streams belonging to a session"
+    },
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Collection of projects registered by users"
+    }
+  }
+}

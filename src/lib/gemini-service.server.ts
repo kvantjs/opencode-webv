@@ -12,15 +12,24 @@ import type {
   ProviderInfo,
   SessionInfo,
   SessionMessageAssistant,
+  SessionMessageAssistantReasoning,
   SessionMessageAssistantTool,
   SessionMessageInfo,
   SessionMessageUser,
   SkillInfo,
 } from '@opencode/client'
+import {
+  persistSessionToFirestore,
+  persistMessageToFirestore,
+  deleteSessionFromFirestore,
+  loadSessionsFromFirestore,
+  loadMessagesFromFirestore,
+} from './firestore-sync.server'
 
 const execAsync = promisify(exec)
 
 // --- Types & Data Structures ---
+
 
 export interface StoredData {
   projects: ApiProject[]
@@ -149,21 +158,21 @@ export const GEMINI_PROVIDER: ProviderInfo = {
 export const AGENTS: AgentInfo[] = [
   {
     id: 'build',
-    name: 'Build Agent',
+    name: 'Build Engineer',
     mode: 'primary',
     hidden: false,
-    description: 'Autonomous full-stack engineer for writing code, executing builds, running tests, and refactoring.',
-    system: 'You are the autonomous Build Agent, an elite full-stack software engineer. You analyze codebases, execute terminal commands (like npm run build, tests, git), read and write files, write unit tests, and implement robust features with production-grade code.',
+    description: 'Autonomous full-stack engineer — builds features, runs commands/tests, reviews code, and answers questions in concert.',
+    system: 'You are an autonomous senior software engineer. You seamlessly build code, review diffs, and conduct architectural discussions in concert.',
     request: { settings: {}, headers: {}, body: {} },
     permissions: [],
   },
   {
     id: 'chat',
-    name: 'Chat Agent',
+    name: 'Chat Architect',
     mode: 'primary',
     hidden: false,
-    description: 'Conversational coding assistant for architecture discussions, code explanation, and Q&A.',
-    system: 'You are the Chat Agent, a knowledgeable software engineering assistant. You help explain concepts, design architectures, and answer technical questions clearly and thoroughly.',
+    description: 'Conversational architect & engineer — answers questions, reviews code, writes code, and executes commands directly in concert.',
+    system: 'You are a senior software architect and engineer. You explain concepts, answer questions, review code quality, and implement solutions with tools.',
     request: { settings: {}, headers: {}, body: {} },
     permissions: [],
   },
@@ -172,12 +181,13 @@ export const AGENTS: AgentInfo[] = [
     name: 'Code Reviewer',
     mode: 'primary',
     hidden: false,
-    description: 'Specialized code review agent inspecting code quality, security vulnerabilities, performance, and best practices.',
-    system: 'You are the Code Reviewer Agent, a principal software engineer. You perform rigorous, constructive code reviews, identifying security flaws, performance bottlenecks, code smells, type errors, and maintainability improvements.',
+    description: 'Principal code reviewer & engineer — audits code quality, spots vulnerabilities, performs refactoring, and implements fixes directly in concert.',
+    system: 'You are a principal code reviewer and engineer. You audit code quality, review git changes, and autonomously fix issues and verify builds.',
     request: { settings: {}, headers: {}, body: {} },
     permissions: [],
   },
 ]
+
 
 export const COMMANDS: CommandInfo[] = [
   { name: 'explain', description: 'Explain code logic, syntax, or architecture in detail' },
@@ -244,12 +254,33 @@ const workspaceTools = [
           required: ['filepath', 'content'],
         },
       },
+      {
+        name: 'get_git_diff',
+        description: 'Inspect the current git status and unstaged/staged git diffs in the repository.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {},
+        },
+      },
+      {
+        name: 'list_workspace_dir',
+        description: 'List files and directories in a workspace directory.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            dirpath: {
+              type: Type.STRING,
+              description: 'Relative subpath to list. Leave empty for root workspace.',
+            },
+          },
+        },
+      },
     ],
   },
 ]
 
 async function executeWorkspaceTool(name: string, args: any, workspaceDir: string): Promise<string> {
-  const dir = workspaceDir
+  const dir = workspaceDir || process.cwd()
   try {
     if (name === 'run_bash_command') {
       const { stdout, stderr } = await execAsync(args.command, {
@@ -276,6 +307,26 @@ async function executeWorkspaceTool(name: string, args: any, workspaceDir: strin
       await fs.mkdir(path.dirname(fullPath), { recursive: true })
       await fs.writeFile(fullPath, args.content ?? '', 'utf-8')
       return `Successfully wrote to ${targetPath}`
+    }
+    if (name === 'get_git_diff') {
+      try {
+        const { stdout: status } = await execAsync('git status --short', { cwd: dir, timeout: 10_000 })
+        const { stdout: diff } = await execAsync('git diff', { cwd: dir, timeout: 20_000 })
+        return `### Git Status:\n${status.trim() || 'Working tree clean'}\n\n### Git Diff:\n${diff.trim() || 'No unstaged diffs'}`
+      } catch (err: any) {
+        return `Git inspection: ${err.message || String(err)}`
+      }
+    }
+    if (name === 'list_workspace_dir') {
+      const sub = args.dirpath || ''
+      const target = path.resolve(dir, sub)
+      if (!target.startsWith(dir)) {
+        return 'Error: Access denied outside workspace directory.'
+      }
+      const entries = await fs.readdir(target, { withFileTypes: true })
+      return entries
+        .map((e) => `${e.isDirectory() ? '[DIR] ' : '[FILE] '}${e.name}`)
+        .join('\n')
     }
     return `Unknown tool: ${name}`
   } catch (err: any) {
@@ -320,6 +371,26 @@ async function loadStorage(): Promise<StoredData> {
       },
     ]
   }
+
+  // Synchronize with persistent cloud Firestore database
+  try {
+    const cloudSessions = await loadSessionsFromFirestore()
+    if (cloudSessions && cloudSessions.length > 0) {
+      for (const cs of cloudSessions) {
+        const existingIdx = memoryData.sessions.findIndex((s) => s.id === cs.id)
+        if (existingIdx >= 0) {
+          if ((cs.time?.updated || 0) > (memoryData.sessions[existingIdx].time?.updated || 0)) {
+            memoryData.sessions[existingIdx] = cs
+          }
+        } else {
+          memoryData.sessions.push(cs)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Firestore initial sync note:', err)
+  }
+
   storageLoaded = true
   return memoryData
 }
@@ -332,6 +403,7 @@ async function saveStorage(): Promise<void> {
     console.error('Failed to save OpenCode storage:', err)
   }
 }
+
 
 // --- Handler Implementations ---
 
@@ -525,6 +597,7 @@ export async function handleGeminiServiceRequest(
     memoryData.sessions.unshift(session)
     memoryData.messages[sessionID] = []
     await saveStorage()
+    void persistSessionToFirestore(session)
 
     broadcastEvent({
       type: 'session.created',
@@ -559,6 +632,7 @@ export async function handleGeminiServiceRequest(
         if (body.title !== undefined) session.title = body.title
         session.time.updated = Date.now()
         await saveStorage()
+        void persistSessionToFirestore(session)
         broadcastEvent({
           type: 'session.renamed',
           id: `evt_${Date.now()}`,
@@ -577,6 +651,7 @@ export async function handleGeminiServiceRequest(
       activeControllers.get(sessionID)?.abort()
       activeControllers.delete(sessionID)
       await saveStorage()
+      void deleteSessionFromFirestore(sessionID)
 
       broadcastEvent({
         type: 'session.deleted',
@@ -595,6 +670,7 @@ export async function handleGeminiServiceRequest(
         session.model = body.model
         session.time.updated = Date.now()
         await saveStorage()
+        void persistSessionToFirestore(session)
         broadcastEvent({
           type: 'session.model.selected',
           id: `evt_${Date.now()}`,
@@ -613,6 +689,7 @@ export async function handleGeminiServiceRequest(
         session.agent = body.agent
         session.time.updated = Date.now()
         await saveStorage()
+        void persistSessionToFirestore(session)
         broadcastEvent({
           type: 'session.agent.selected',
           id: `evt_${Date.now()}`,
@@ -625,7 +702,14 @@ export async function handleGeminiServiceRequest(
 
     // 20. List Messages: GET /api/session/:id/message
     if (subRoute === '/message' && method === 'GET') {
-      const messages = memoryData.messages[sessionID] || []
+      let messages = memoryData.messages[sessionID] || []
+      if (messages.length === 0) {
+        const cloudMessages = await loadMessagesFromFirestore(sessionID)
+        if (cloudMessages && cloudMessages.length > 0) {
+          memoryData.messages[sessionID] = cloudMessages
+          messages = cloudMessages
+        }
+      }
       return Response.json({
         data: messages,
         cursor: { next: null, previous: null },
@@ -800,14 +884,14 @@ export async function handleGeminiServiceRequest(
     if (subRoute === '/command' && method === 'POST') {
       const body = init?.body ? JSON.parse(typeof init.body === 'string' ? init.body : new TextDecoder().decode(init.body as ArrayBuffer)) : {}
       const commandPrompt = `/${body.name} ${body.text || ''}`.trim()
-      void executeGeminiPrompt(sessionID, commandPrompt, body.files || [])
+      void executeGeminiPrompt(sessionID, commandPrompt, body.files || [], body.agent, body.model)
       return Response.json({ ok: true })
     }
 
     // 30. Send Prompt: POST /api/session/:id/prompt
     if (subRoute === '/prompt' && method === 'POST') {
       const body = init?.body ? JSON.parse(typeof init.body === 'string' ? init.body : new TextDecoder().decode(init.body as ArrayBuffer)) : {}
-      void executeGeminiPrompt(sessionID, body.text || '', body.files || [])
+      void executeGeminiPrompt(sessionID, body.text || '', body.files || [], body.agent, body.model)
       return Response.json({ ok: true })
     }
   }
@@ -837,11 +921,36 @@ async function executeGeminiPrompt(
   sessionID: string,
   text: string,
   files: Array<{ name?: string; uri?: string; filename?: string; url?: string }>,
+  agentOverride?: string,
+  modelOverride?: any,
 ) {
   await loadStorage()
   const session = memoryData.sessions.find((s) => s.id === sessionID)
   if (!session) return
   const workspaceRoot: string = (session.location?.directory as string) || process.cwd()
+
+  // Update session agent if an override was provided
+  if (agentOverride && session.agent !== agentOverride) {
+    session.agent = agentOverride
+    broadcastEvent({
+      type: 'session.agent.selected',
+      id: `evt_${Date.now()}`,
+      created: Date.now(),
+      data: { sessionID, agent: session.agent },
+    })
+  }
+
+  // Update session model if an override was provided
+  if (modelOverride) {
+    if (typeof modelOverride === 'string') {
+      session.model = { providerID: 'google', id: modelOverride }
+    } else if (modelOverride.modelID || modelOverride.id) {
+      session.model = {
+        providerID: modelOverride.providerID || 'google',
+        id: modelOverride.modelID || modelOverride.id,
+      }
+    }
+  }
 
   // Auto-generate title if this is the first message
   if (session.title === 'New session' || !session.title) {
@@ -877,6 +986,8 @@ async function executeGeminiPrompt(
   }
   memoryData.messages[sessionID].push(userMsg)
   await saveStorage()
+  void persistMessageToFirestore(sessionID, userMsg)
+  void persistSessionToFirestore(session)
 
   // Broadcast Inbox & User Events
   broadcastEvent({
@@ -910,17 +1021,27 @@ async function executeGeminiPrompt(
     data: { sessionID },
   })
 
-  // 3. Create Assistant Message
+  // 3. Create Assistant Message with Active Unified Agent & Reasoning State
   const assistantMsgId = `msg_a_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-  const selectedModelId = session.model?.id || 'gemini-3.1-flash-lite'
+  const selectedModelId = session.model?.id || 'gemini-3.8-flash'
   const selectedAgentId = session.agent || 'build'
+
+  const initialThought = `Analyzing workspace context and user request. Coordinating unified Build, Code Review, and Chat capabilities...`
+  const reasoningPart: SessionMessageAssistantReasoning = {
+    type: 'reasoning',
+    text: initialThought,
+    time: { created: Date.now() },
+  }
 
   const assistantMsg: SessionMessageAssistant = {
     id: assistantMsgId,
     type: 'assistant',
     agent: selectedAgentId,
     model: { providerID: 'google', id: selectedModelId },
-    content: [{ type: 'text', text: '' }],
+    content: [
+      reasoningPart,
+      { type: 'text', text: '' },
+    ],
     time: { created: Date.now() },
   }
 
@@ -936,6 +1057,25 @@ async function executeGeminiPrompt(
       agent: selectedAgentId,
       model: { providerID: 'google', id: selectedModelId },
       started: Date.now(),
+    },
+  })
+
+  // Broadcast Thought & Reasoning Started
+  broadcastEvent({
+    type: 'session.thought.started',
+    id: `evt_${Date.now()}`,
+    created: Date.now(),
+    data: { sessionID, assistantMessageID: assistantMsgId },
+  })
+
+  broadcastEvent({
+    type: 'session.thought.delta',
+    id: `evt_${Date.now()}`,
+    created: Date.now(),
+    data: {
+      sessionID,
+      assistantMessageID: assistantMsgId,
+      delta: initialThought,
     },
   })
 
@@ -962,11 +1102,25 @@ async function executeGeminiPrompt(
     }
 
     const agentObj = AGENTS.find((a) => a.id === selectedAgentId) || AGENTS[0]
-    const systemInstruction = `${agentObj.system}\n\nWorkspace Directory: ${workspaceRoot}\nCurrent Time: ${new Date().toISOString()}\nYou have access to workspace tools (run_bash_command, read_workspace_file, write_workspace_file). When asked to build, run tests, fix bugs, or inspect files, actively use these tools to execute tasks autonomously and provide production-ready solutions.`
+    
+    // Unified Synergy Directive: All three capabilities work in unison regardless of the mode!
+    const unifiedDirective = `### UNIFIED OMNI-CAPABLE AI SOFTWARE ENGINEER
+You are an advanced, full-spectrum AI software engineering agent with ALL capabilities operating in unison:
+1. BUILD & CODE: Create or modify files (write_workspace_file), execute builds (run_bash_command with npm run build), run automated tests, refactor, and implement features with production-grade quality.
+2. CODE REVIEW & AUDIT: Thoroughly inspect git status and unstaged/staged git diffs (get_git_diff), read workspace files (read_workspace_file), detect code smells, security vulnerabilities, type errors, and performance bottlenecks, and provide clear constructive audits.
+3. CHAT & ARCHITECTURAL CONSULTATION: Answer user queries, explain syntax, algorithms, and design patterns, and answer technical questions thoroughly and clearly.
+
+CRITICAL DIRECTIVE: You are NEVER confined to only one silo. Build, Code Reviewer, and Chat work TOGETHER IN SYNERGY at all times.
+- If the user asks a question, explain and answer clearly.
+- If the user asks to review code or check differences, inspect files and git diffs and provide structured, prioritized findings.
+- If the user asks to build, create, or fix something, use your workspace tools (write_workspace_file, run_bash_command, etc.) and verify that the build succeeds.
+- If the prompt touches multiple areas (e.g. "review this, explain what's wrong, fix it, and build"), do all of them seamlessly in the same execution turn!`
+
+    const systemInstruction = `${unifiedDirective}\n\nWorkspace Directory: ${workspaceRoot}\nCurrent Time: ${new Date().toISOString()}\nActive Lens/Perspective: ${agentObj.name}`
 
     let targetModel = GEMINI_MODELS.some((m) => m.id === selectedModelId)
       ? selectedModelId
-      : 'gemini-3.1-flash-lite'
+      : 'gemini-3.8-flash'
 
     // Multi-turn tool execution loop (up to 5 turns)
     let currentContents: any[] = []
@@ -1018,15 +1172,45 @@ async function executeGeminiPrompt(
         config: {
           systemInstruction,
           tools: workspaceTools as any,
+          thinkingConfig: {
+            thinkingBudget: 2048,
+          },
         },
       })
 
       const functionCalls = response.functionCalls
       const textOutput = response.text || ''
 
+      // Extract model thoughts if emitted
+      const candidateParts = response.candidates?.[0]?.content?.parts || []
+      const modelThoughts = candidateParts
+        .filter((p: any) => p.thought === true)
+        .map((p: any) => p.text || '')
+        .filter(Boolean)
+        .join('\n')
+
+      if (modelThoughts) {
+        reasoningPart.text += (reasoningPart.text ? '\n\n' : '') + modelThoughts
+        broadcastEvent({
+          type: 'session.thought.delta',
+          id: `evt_${Date.now()}`,
+          created: Date.now(),
+          data: {
+            sessionID,
+            assistantMessageID: assistantMsgId,
+            delta: modelThoughts,
+          },
+        })
+      }
+
       if (textOutput) {
         fullAssistantText += (fullAssistantText ? '\n' : '') + textOutput
-        assistantMsg.content[0] = { type: 'text', text: fullAssistantText }
+        const textPart = assistantMsg.content.find((c): c is { type: 'text'; text: string } => c.type === 'text')
+        if (textPart) {
+          textPart.text = fullAssistantText
+        } else {
+          assistantMsg.content.push({ type: 'text', text: fullAssistantText })
+        }
 
         broadcastEvent({
           type: 'session.text.delta',
@@ -1041,28 +1225,72 @@ async function executeGeminiPrompt(
       }
 
       if (functionCalls && functionCalls.length > 0) {
-        // Add model response with function call
-        currentContents.push({
-          role: 'model',
-          parts: functionCalls.map((fc: any) => ({ functionCall: fc })),
+        // Record tool decision in reasoning thought stream
+        const toolNames = functionCalls.map((fc: any) => fc.name).join(', ')
+        const toolThought = `Coordinating workspace tools: ${toolNames}. Executing actions and inspecting results...`
+        reasoningPart.text += (reasoningPart.text ? '\n\n' : '') + toolThought
+        broadcastEvent({
+          type: 'session.thought.delta',
+          id: `evt_${Date.now()}`,
+          created: Date.now(),
+          data: {
+            sessionID,
+            assistantMessageID: assistantMsgId,
+            delta: `\n\n${toolThought}`,
+          },
         })
+
+        // Preserve raw model candidate parts so thought signatures and reasoning are maintained
+        const modelCandidateParts = response.candidates?.[0]?.content?.parts
+        if (modelCandidateParts && modelCandidateParts.length > 0) {
+          currentContents.push({
+            role: 'model',
+            parts: modelCandidateParts,
+          })
+        } else {
+          currentContents.push({
+            role: 'model',
+            parts: functionCalls.map((fc: any) => {
+              const part: any = { functionCall: fc }
+              if (fc.thoughtSignature || fc.thought_signature) {
+                part.thought_signature = fc.thoughtSignature || fc.thought_signature
+              }
+              return part
+            }),
+          })
+        }
 
         const functionResponseParts = []
 
         for (const fc of functionCalls) {
           const toolId = `tool_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-          const toolName = fc.name
+          const toolName = fc.name || 'unknown_tool'
           const toolArgs: Record<string, any> = (fc.args as any) ?? {}
 
-          // Broadcast tool start / called event
-          assistantMsg.content.push({
+          // 1. Announce tool input started
+          broadcastEvent({
+            type: 'session.tool.input.started',
+            id: `evt_${Date.now()}`,
+            created: Date.now(),
+            data: {
+              sessionID,
+              assistantMessageID: assistantMsgId,
+              id: toolId,
+              name: toolName,
+            },
+          })
+
+          // 2. Add tool item to assistant message content
+          const toolItem: SessionMessageAssistantTool = {
             type: 'tool',
             id: toolId,
             name: toolName,
             state: { status: 'running', input: toolArgs, metadata: {} },
-            time: { created: Date.now() },
-          } as SessionMessageAssistantTool)
+            time: { created: Date.now(), ran: Date.now() },
+          }
+          assistantMsg.content.push(toolItem)
 
+          // 3. Broadcast tool called
           broadcastEvent({
             type: 'session.tool.called',
             id: `evt_${Date.now()}`,
@@ -1077,8 +1305,20 @@ async function executeGeminiPrompt(
             },
           })
 
-          const toolResult = await executeWorkspaceTool(toolName, toolArgs as any, workspaceRoot || process.cwd())
+          // Execute tool in workspace
+          const toolResult = await (executeWorkspaceTool as any)(toolName, toolArgs as any, workspaceRoot)
 
+          // 4. Update tool state to completed in stored message
+          toolItem.state = {
+            status: 'completed',
+            input: toolArgs,
+            content: [{ type: 'text', text: toolResult }],
+            metadata: {},
+          }
+          toolItem.time.completed = Date.now()
+          toolItem.executed = true
+
+          // 5. Broadcast tool success
           broadcastEvent({
             type: 'session.tool.success',
             id: `evt_${Date.now()}`,
@@ -1092,11 +1332,15 @@ async function executeGeminiPrompt(
             },
           })
 
+          const fr: Record<string, any> = {
+            name: toolName,
+            response: { result: toolResult },
+          }
+          if ((fc as any).id) {
+            fr.id = (fc as any).id
+          }
           functionResponseParts.push({
-            functionResponse: {
-              name: toolName,
-              response: { result: toolResult },
-            },
+            functionResponse: fr,
           })
         }
 
@@ -1117,27 +1361,40 @@ async function executeGeminiPrompt(
     console.error('Gemini API execution error:', err)
     const errMessage = err?.message || String(err)
     fullAssistantText = `### Autonomous Agent Notice\n\n${errMessage}\n\n> **Tip**: Verify your \`GEMINI_API_KEY\` in your environment or Settings > Secrets panel.`
-    assistantMsg.content[0] = { type: 'text', text: fullAssistantText }
-
-    broadcastEvent({
-      type: 'session.text.delta',
-      id: `evt_${Date.now()}`,
-      created: Date.now(),
-      data: {
-        sessionID,
-        assistantMessageID: assistantMsgId,
-        delta: fullAssistantText,
-      },
-    })
+    const textPart = assistantMsg.content.find((c): c is { type: 'text'; text: string } => c.type === 'text')
+    if (textPart) {
+      textPart.text = fullAssistantText
+    } else {
+      assistantMsg.content.push({ type: 'text', text: fullAssistantText })
+    }
   } finally {
     activeControllers.delete(sessionID)
     busySessions.delete(sessionID)
 
+    // Complete Reasoning and Thought
+    if (!reasoningPart.time) {
+      reasoningPart.time = { created: Date.now() }
+    }
+    reasoningPart.time.completed = Date.now()
+
+    broadcastEvent({
+      type: 'session.thought.ended',
+      id: `evt_${Date.now()}`,
+      created: Date.now(),
+      data: { sessionID, assistantMessageID: assistantMsgId },
+    })
+
     // Complete Assistant Message
-    assistantMsg.content[0] = { type: 'text', text: fullAssistantText }
+    const textPart = assistantMsg.content.find((c): c is { type: 'text'; text: string } => c.type === 'text')
+    if (textPart) {
+      textPart.text = fullAssistantText
+    }
     assistantMsg.time.completed = Date.now()
     assistantMsg.finish = 'stop'
+
     await saveStorage()
+    void persistSessionToFirestore(session)
+    void persistMessageToFirestore(sessionID, assistantMsg)
 
     broadcastEvent({
       type: 'session.text.ended',
@@ -1169,3 +1426,4 @@ async function executeGeminiPrompt(
     })
   }
 }
+

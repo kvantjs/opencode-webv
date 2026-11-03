@@ -333,9 +333,17 @@ export async function openProject(directory: string) {
   if (!project) throw new Error('Project was not registered')
   return toProject(project)
 }
-export async function createSession(directory: string, title?: string) {
+export async function createSession(
+  directory: string,
+  title?: string,
+  agent?: string,
+  model?: { providerID: string; modelID: string; variant?: string },
+) {
+  const payload: any = { location: { directory }, title }
+  if (agent) payload.agent = agent
+  if (model) payload.model = { providerID: model.providerID, id: model.modelID, variant: model.variant }
   return toSession(
-    await (await client()).session.create({ location: { directory }, title }),
+    await (await client()).session.create(payload),
   )
 }
 export interface PromptInput {

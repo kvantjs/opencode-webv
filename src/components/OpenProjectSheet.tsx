@@ -63,9 +63,10 @@ export function OpenProjectSheet({
   const navigateToDraft = () => {
     const next = normalizeDirectory(draft, home)
     if (!next) {
-      setPathError('Enter an absolute path, such as /home/user/project.')
+      setPathError('Enter a workspace directory path, such as /src or /.')
       return
     }
+
     navigate(next)
   }
 
