@@ -140,259 +140,64 @@ if (container) {
       )
     }
 
-    // 3. React Main Component: src/App.tsx (Full functional React + Vite app with real Public APIs)
+    // 3. React Main Component: src/App.tsx (local functional starter, no public APIs)
     const appTsxPath = path.join(dir, 'src', 'App.tsx')
     try {
       await fs.access(appTsxPath)
     } catch {
       await fs.writeFile(
         appTsxPath,
-        `import React, { useState, useEffect } from 'react'
+        `import { useState } from 'react'
 
-interface WeatherData {
-  temperature: number
-  windspeed: number
-  weathercode: number
-  time: string
-}
-
-interface QuoteData {
-  quote: string
-  author: string
-}
+const features = [
+  { title: 'Clareza', text: 'Uma base simples para transformar a ideia em uma interface real.' },
+  { title: 'Velocidade', text: 'Sem dependências externas ou chamadas públicas obrigatórias.' },
+  { title: 'Controle', text: 'Todos os estados ficam no workspace local e são fáceis de evoluir.' },
+]
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'weather' | 'crypto' | 'quotes'>('weather')
-  const [city, setCity] = useState('Sao Paulo')
-  const [weather, setWeather] = useState<WeatherData | null>(null)
-  const [quote, setQuote] = useState<QuoteData | null>(null)
-  const [cryptoPrices, setCryptoPrices] = useState<Record<string, { usd: number; usd_24h_change: number }> | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  // Fetch real Public Weather API (Open-Meteo)
-  const fetchWeather = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      // Default to Sao Paulo coordinates (-23.55, -46.63)
-      const res = await fetch(
-        'https://api.open-meteo.com/v1/forecast?latitude=-23.55&longitude=-46.63&current_weather=true'
-      )
-      if (!res.ok) throw new Error('Falha ao obter dados meteorológicos')
-      const data = await res.json()
-      if (data.current_weather) {
-        setWeather({
-          temperature: data.current_weather.temperature,
-          windspeed: data.current_weather.windspeed,
-          weathercode: data.current_weather.weathercode,
-          time: data.current_weather.time,
-        })
-      }
-    } catch (err: any) {
-      setError(err.message || 'Erro ao carregar clima')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Fetch real Public Quotes API
-  const fetchQuote = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch('https://dummyjson.com/quotes/random')
-      if (!res.ok) throw new Error('Falha ao carregar citação')
-      const data = await res.json()
-      setQuote({ quote: data.quote, author: data.author })
-    } catch (err: any) {
-      setError(err.message || 'Erro ao carregar citação')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Fetch real Public Crypto Prices (CoinGecko)
-  const fetchCrypto = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(
-        'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true'
-      )
-      if (!res.ok) throw new Error('Falha ao carregar cotações de cripto')
-      const data = await res.json()
-      setCryptoPrices(data)
-    } catch (err: any) {
-      setError(err.message || 'Erro ao carregar cotações')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    if (activeTab === 'weather') fetchWeather()
-    if (activeTab === 'quotes') fetchQuote()
-    if (activeTab === 'crypto') fetchCrypto()
-  }, [activeTab])
+  const [active, setActive] = useState('Overview')
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-6 font-sans">
-      <header className="max-w-2xl w-full text-center my-6">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold tracking-wide uppercase mb-3">
-          React 19 + Vite Live Runtime
-        </div>
-        <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-cyan-400 via-sky-300 to-indigo-400 bg-clip-text text-transparent">
-          Web App em React + Vite com APIs Públicas
-        </h1>
-        <p className="text-slate-400 text-sm mt-2">
-          Peça ao agente no chat para criar qualquer web app ou site em React+Vite com dados de APIs públicas.
-        </p>
+    <div className="app-shell">
+      <header className="topbar">
+        <a className="brand" href="/">Studio</a>
+        <nav aria-label="Primary navigation">
+          {['Overview', 'Projects', 'Settings'].map((item) => (
+            <button key={item} className={active === item ? 'nav-link active' : 'nav-link'} onClick={() => setActive(item)}>
+              {item}
+            </button>
+          ))}
+        </nav>
+        <button className="avatar" aria-label="Open profile">A</button>
       </header>
 
-      {/* Navigation Tabs */}
-      <div className="flex bg-slate-900 p-1.5 rounded-xl border border-slate-800 gap-1.5 mb-6 max-w-md w-full">
-        <button
-          onClick={() => setActiveTab('weather')}
-          className={\`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition \${
-            activeTab === 'weather'
-              ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30'
-              : 'text-slate-400 hover:text-slate-200'
-          }\`}
-        >
-          Clima (Open-Meteo)
-        </button>
-        <button
-          onClick={() => setActiveTab('crypto')}
-          className={\`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition \${
-            activeTab === 'crypto'
-              ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30'
-              : 'text-slate-400 hover:text-slate-200'
-          }\`}
-        >
-          Cripto (CoinGecko)
-        </button>
-        <button
-          onClick={() => setActiveTab('quotes')}
-          className={\`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition \${
-            activeTab === 'quotes'
-              ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30'
-              : 'text-slate-400 hover:text-slate-200'
-          }\`}
-        >
-          Inspiração (DummyJSON)
-        </button>
-      </div>
-
-      {/* Main Content Area */}
-      <main className="max-w-md w-full bg-slate-900/90 border border-slate-800/80 rounded-2xl p-6 shadow-2xl backdrop-blur">
-        {loading && (
-          <div className="py-12 flex flex-col items-center justify-center gap-3">
-            <div className="w-8 h-8 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
-            <span className="text-slate-400 text-sm">Carregando dados da API pública...</span>
+      <main className="content">
+        <section className="hero">
+          <p className="eyebrow">LOCAL WORKSPACE</p>
+          <h1>Build something clear and useful.</h1>
+          <p className="lede">A polished local-first starting point. Replace this content with the product experience requested by the user.</p>
+          <div className="actions">
+            <button className="button primary" onClick={() => setActive('Projects')}>Explore projects</button>
+            <button className="button secondary" onClick={() => setActive('Settings')}>Open settings</button>
           </div>
-        )}
+        </section>
 
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-4 rounded-xl text-sm mb-4">
-            <p className="font-semibold">Erro na chamada da API</p>
-            <p className="text-xs mt-1 text-red-300">{error}</p>
-            <button
-              onClick={() => {
-                if (activeTab === 'weather') fetchWeather()
-                if (activeTab === 'crypto') fetchCrypto()
-                if (activeTab === 'quotes') fetchQuote()
-              }}
-              className="mt-3 px-3 py-1 bg-red-600/80 hover:bg-red-600 text-white text-xs rounded-lg font-medium transition"
-            >
-              Tentar novamente
-            </button>
-          </div>
-        )}
+        <section className="feature-grid" aria-label="Highlights">
+          {features.map((feature) => (
+            <article className="card" key={feature.title}>
+              <span className="card-index">0{features.indexOf(feature) + 1}</span>
+              <h2>{feature.title}</h2>
+              <p>{feature.text}</p>
+            </article>
+          ))}
+        </section>
 
-        {!loading && !error && activeTab === 'weather' && weather && (
-          <div className="flex flex-col gap-4 text-center">
-            <span className="text-xs uppercase tracking-wider text-slate-400">Previsão em Tempo Real</span>
-            <div className="text-6xl font-black text-cyan-400">{weather.temperature}°C</div>
-            <div className="grid grid-cols-2 gap-3 mt-4">
-              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50">
-                <span className="text-xs text-slate-400 block">Vento</span>
-                <span className="text-lg font-bold text-slate-200">{weather.windspeed} km/h</span>
-              </div>
-              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50">
-                <span className="text-xs text-slate-400 block">Condição</span>
-                <span className="text-lg font-bold text-slate-200">
-                  {weather.weathercode === 0 ? 'Céu Limpo' : 'Parcialmente Nublado'}
-                </span>
-              </div>
-            </div>
-            <button
-              onClick={fetchWeather}
-              className="mt-2 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm rounded-xl font-medium transition"
-            >
-              Atualizar Clima
-            </button>
-          </div>
-        )}
-
-        {!loading && !error && activeTab === 'crypto' && cryptoPrices && (
-          <div className="flex flex-col gap-3">
-            <span className="text-xs uppercase tracking-wider text-slate-400 text-center mb-1">
-              Mercado Cripto em Tempo Real
-            </span>
-            {Object.entries(cryptoPrices).map(([id, info]) => (
-              <div
-                key={id}
-                className="flex items-center justify-between p-3.5 bg-slate-800/60 rounded-xl border border-slate-700/50"
-              >
-                <div>
-                  <span className="font-bold text-slate-200 uppercase">{id}</span>
-                  <span className="block text-xs text-slate-400">USD</span>
-                </div>
-                <div className="text-right">
-                  <span className="font-bold text-slate-100 block">
-                    \${info.usd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </span>
-                  <span
-                    className={\`text-xs font-semibold \${
-                      info.usd_24h_change >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                    }\`}
-                  >
-                    {info.usd_24h_change >= 0 ? '+' : ''}
-                    {info.usd_24h_change?.toFixed(2)}%
-                  </span>
-                </div>
-              </div>
-            ))}
-            <button
-              onClick={fetchCrypto}
-              className="mt-2 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm rounded-xl font-medium transition"
-            >
-              Atualizar Cotações
-            </button>
-          </div>
-        )}
-
-        {!loading && !error && activeTab === 'quotes' && quote && (
-          <div className="flex flex-col gap-4 text-center">
-            <span className="text-xs uppercase tracking-wider text-slate-400">Pensamento do Dia</span>
-            <blockquote className="text-lg font-medium italic text-slate-200 leading-relaxed">
-              "{quote.quote}"
-            </blockquote>
-            <span className="text-sm font-semibold text-cyan-400">— {quote.author}</span>
-            <button
-              onClick={fetchQuote}
-              className="mt-3 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm rounded-xl font-medium transition"
-            >
-              Nova Citação
-            </button>
-          </div>
-        )}
+        <section className="status-card">
+          <div><span className="status-dot" />Runtime ready</div>
+          <span className="muted">{active} view</span>
+        </section>
       </main>
-
-      <footer className="mt-8 text-xs text-slate-500 text-center">
-        OpenCode Web • React + Vite Autonomous Runtime
-      </footer>
     </div>
   )
 }
@@ -408,12 +213,36 @@ export default function App() {
     } catch {
       await fs.writeFile(
         cssPath,
-        `body {
-  margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background-color: #020617;
-  color: #f8fafc;
-}
+        `:root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e8edf5; background: #0b1020; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at 20% 0%, #1b2a52 0, transparent 38%), #0b1020; }
+button { font: inherit; }
+.app-shell { min-height: 100vh; }
+.topbar { height: 72px; display: flex; align-items: center; gap: 32px; padding: 0 6vw; border-bottom: 1px solid #24304a; background: rgba(11,16,32,.78); backdrop-filter: blur(16px); }
+.brand { color: #fff; font-weight: 800; letter-spacing: -.04em; font-size: 1.15rem; text-decoration: none; margin-right: auto; }
+nav { display: flex; gap: 8px; }
+.nav-link { border: 0; background: transparent; color: #8290aa; padding: 10px 12px; border-radius: 8px; cursor: pointer; }
+.nav-link:hover, .nav-link.active { color: #fff; background: #1b2742; }
+.avatar { width: 34px; height: 34px; border: 1px solid #52658d; border-radius: 50%; background: #243b70; color: #fff; cursor: pointer; }
+.content { width: min(1080px, 88vw); margin: 0 auto; padding: 96px 0 64px; }
+.hero { max-width: 720px; }
+.eyebrow { color: #82aaff; font-size: .72rem; font-weight: 800; letter-spacing: .16em; }
+h1 { max-width: 700px; margin: 16px 0; color: #fff; font-size: clamp(2.6rem, 7vw, 5.8rem); line-height: .98; letter-spacing: -.07em; }
+.lede { max-width: 560px; color: #aeb9ce; font-size: 1.12rem; line-height: 1.65; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+.button { border: 1px solid #35476c; border-radius: 10px; padding: 12px 18px; color: #fff; cursor: pointer; transition: transform .2s, background .2s; }
+.button:hover { transform: translateY(-2px); }
+.primary { background: #5278d8; border-color: #7092e6; }
+.secondary { background: #17223b; }
+.feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 92px; }
+.card { min-height: 190px; padding: 24px; border: 1px solid #263554; border-radius: 16px; background: rgba(21,31,55,.7); }
+.card-index { color: #82aaff; font-size: .78rem; font-weight: 800; }
+.card h2 { margin: 42px 0 8px; color: #f7f9ff; font-size: 1.2rem; }
+.card p { margin: 0; color: #95a4bf; line-height: 1.55; }
+.status-card { display: flex; justify-content: space-between; margin-top: 18px; padding: 16px 20px; border: 1px solid #263554; border-radius: 12px; color: #c4cee0; background: rgba(14,22,40,.8); }
+.status-dot { display: inline-block; width: 8px; height: 8px; margin-right: 9px; border-radius: 50%; background: #5ce39d; box-shadow: 0 0 12px #5ce39d; }
+.muted { color: #71809e; }
+@media (max-width: 700px) { .topbar { gap: 12px; padding: 0 5vw; } nav { display: none; } .content { padding-top: 68px; } .feature-grid { grid-template-columns: 1fr; margin-top: 58px; } h1 { font-size: clamp(2.6rem, 15vw, 4.5rem); } }
 `,
         'utf-8',
       )
@@ -485,7 +314,7 @@ export default defineConfig({
     } catch {
       await fs.writeFile(
         readmePath,
-        `# Session React + Vite Development Environment\n\nSession ID: ${sessionId}\nThis workspace contains a pure React + Vite application connected to live Public APIs.\n`,
+        `# Session React + Vite Development Environment\n\nSession ID: ${sessionId}\nThis workspace contains a local-first React + Vite application with no mandatory external APIs.\n`,
         'utf-8',
       )
     }
@@ -717,7 +546,14 @@ async function generateGeminiContent(
   for (const model of candidates) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const response = await ai.models.generateContent({ model, contents, config })
+        const response = await ai.models.generateContent({
+          model,
+          contents,
+          config: {
+            ...config,
+            abortSignal: AbortSignal.timeout(20_000),
+          },
+        })
         return { response, model }
       } catch (error) {
         lastError = error
@@ -1056,6 +892,17 @@ async function executeBrowserAction(url: string, action = 'render_text'): Promis
   } catch (err: any) {
     return `Browser CLI Error: ${err.message || String(err)}`
   }
+}
+
+type AgentTaskMode = 'chat' | 'research' | 'build'
+
+function classifyAgentTask(text: string): AgentTaskMode {
+  const value = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const build = /\b(crie|criar|construa|construir|desenvolva|implemente|implement|site|website|web app|aplicacao|dashboard|landing page|componente|codigo|código|program|corrija|modifique|refatore|arquivo|frontend|react|vite|css|html)\b/.test(value)
+  const research = /\b(pesquise|pesquisa|procure|buscar|busque|compare|comparar|investigue|documentacao|documentação|noticias|atual|mais recente|latest|web)\b/.test(value)
+  if (build) return 'build'
+  if (research) return 'research'
+  return 'chat'
 }
 
 // --- Comprehensive Agent Tools Suite ---
@@ -3083,20 +2930,16 @@ async function executeGeminiPrompt(
     data: { sessionID },
   })
 
-  // 3. Create Assistant Message with Active Unified Agent & Reasoning State
+  // 3. Create Assistant Message. Keep ordinary conversation cheap and direct.
   const assistantMsgId = `msg_a_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
   const selectedModelId = session.model?.id || DEFAULT_GEMINI_MODEL
   const selectedAgentId = session.agent || 'build'
-
-  // Agno Agent Framework Team Initialization & Coordination
-  const agnoSession = getOrCreateSessionAgno(sessionID)
-  const agnoResult = await agnoSession.team.coordinateTask(text, {
-    sessionId: sessionID,
-    workspaceDir: workspaceRoot,
-    agentName: selectedAgentId,
-  }).catch(() => ({ output: 'Agno workflow initialization failed; agent tools remain available.', workflow: undefined }))
-
-  const initialThought = `[Agno Framework Active] ${agnoResult.output}\nAnalyzing workspace context and orchestrating subagents for optimal execution...`
+  const taskMode = classifyAgentTask(text)
+  const initialThought = taskMode === 'build'
+    ? 'Planejando a implementação local e a verificação visual.'
+    : taskMode === 'research'
+      ? 'Organizando a pesquisa solicitada.'
+      : ''
   const reasoningPart: SessionMessageAssistantReasoning = {
     type: 'reasoning',
     text: initialThought,
@@ -3109,7 +2952,7 @@ async function executeGeminiPrompt(
     agent: selectedAgentId,
     model: { providerID: 'google', id: selectedModelId },
     content: [
-      reasoningPart,
+      ...(taskMode === 'chat' ? [] : [reasoningPart]),
       { type: 'text', text: '' },
     ],
     time: { created: Date.now() },
@@ -3130,24 +2973,20 @@ async function executeGeminiPrompt(
     },
   })
 
-  // Broadcast Thought & Reasoning Started
-  broadcastEvent({
-    type: 'session.thought.started',
-    id: `evt_${Date.now()}`,
-    created: Date.now(),
-    data: { sessionID, assistantMessageID: assistantMsgId },
-  })
-
-  broadcastEvent({
-    type: 'session.thought.delta',
-    id: `evt_${Date.now()}`,
-    created: Date.now(),
-    data: {
-      sessionID,
-      assistantMessageID: assistantMsgId,
-      delta: initialThought,
-    },
-  })
+  if (taskMode !== 'chat') {
+    broadcastEvent({
+      type: 'session.thought.started',
+      id: `evt_${Date.now()}`,
+      created: Date.now(),
+      data: { sessionID, assistantMessageID: assistantMsgId },
+    })
+    broadcastEvent({
+      type: 'session.thought.delta',
+      id: `evt_${Date.now()}`,
+      created: Date.now(),
+      data: { sessionID, assistantMessageID: assistantMsgId, delta: initialThought },
+    })
+  }
 
   broadcastEvent({
     type: 'session.text.started',
@@ -3173,10 +3012,9 @@ async function executeGeminiPrompt(
 
     const agentObj = AGENTS.find((a) => a.id === selectedAgentId) || AGENTS[0]
 
-    const existingFiles = await getDirectoryTreeRecursive(workspaceRoot, workspaceRoot)
-    const ragDocs = await AgnoRAG.searchWorkspace(text, workspaceRoot, 6).catch(() => [])
-    const agnoSession = getOrCreateSessionAgno(sessionID)
-    const persistentFacts = agnoSession.memory.getFacts()
+    const existingFiles = taskMode === 'build' ? await getDirectoryTreeRecursive(workspaceRoot, workspaceRoot) : []
+    const ragDocs = taskMode === 'build' ? await AgnoRAG.searchWorkspace(text, workspaceRoot, 6).catch(() => []) : []
+    const persistentFacts = taskMode === 'build' ? getOrCreateSessionAgno(sessionID).memory.getFacts() : []
 
     const workspaceGroundTruth = `\n\n### GROUNDED WORKSPACE REALITY (GROUND TRUTH):
 - Workspace Path: ${workspaceRoot}
@@ -3184,42 +3022,22 @@ async function executeGeminiPrompt(
 - Persistent Facts: ${JSON.stringify(persistentFacts)}
 ${ragDocs.length > 0 ? `- Relevant Code Found in Workspace via Agno RAG:\n${ragDocs.map((d) => `  * ${d.source} (score ${d.score}):\n\`\`\`\n${d.content.slice(0, 300)}\n\`\`\``).join('\n')}` : ''}`
 
-    // Empowered Omni-Capable Autonomous Agent Directive with Agno & CodeAct Frameworks
-    const unifiedDirective = `### EMPOWERED AUTONOMOUS AI AGENT OPERATING WITH AGNO & CODEACT FRAMEWORKS
-You are an advanced autonomous AI engineer, system architect, and runtime operator inside your dedicated development environment:
-WORKSPACE DIRECTORY: ${workspaceRoot}
+    const unifiedDirective = `You are a concise, capable assistant inside a local React/Vite workspace.
+TASK MODE: ${taskMode}
 
-CRITICAL OPERATIONAL RULES:
-1. YOU ARE THE OPERATOR, NOT JUST A PASSIVE CHAT:
-   - The user gives you the command and watches you work.
-   - You autonomously read the user's message in full depth, understand the real technical goal, inspect the workspace reality, and ACT.
-   - Do NOT ask or expect the user to select between Agno or CodeAct. Both frameworks are your internal cognitive and action systems.
-   - You automatically decide when to deploy Agno (orchestration, RAG, memory) and when to deploy CodeAct (sandbox Python 3 and Bash execution).
+BEHAVIOR:
+- For chat, answer the user directly. Do not call tools, do not inspect files, do not use RAG, do not create progress notes, and do not expose chain-of-thought.
+- For research, use only the minimum web tools needed, summarize sources, and do not modify the workspace.
+- For build tasks, inspect only relevant local files, implement the requested product, and verify the result locally.
+- Never call a tool merely to appear autonomous. A tool call must be necessary for the requested outcome.
+- Never call public API discovery tools while building a site. Generated apps must work with local mock data or deterministic local state unless the user explicitly requests a specific external integration.
+- Never use remote CDN scripts, remote CSS, public APIs, remote images, or third-party runtime services by default. Keep runtime and preview local to the session workspace.
+- For a new web app, produce a coherent responsive layout, real CSS (not unsupported utility classes), accessible controls, loading/empty/error states where relevant, and a consistent visual system. Do not stop at a generic placeholder.
+- After writing code, run the smallest useful local build/verification command. Use browser inspection only after the app exists.
+- Ask a focused clarification only when a missing requirement blocks implementation; otherwise choose sensible defaults and proceed.
+- Do not use emojis. Keep responses clear and useful.
 
-2. AUTONOMOUS FILE & WEB APP CREATION:
-   - When the user asks to build, modify, test, or remake a website, web app, dashboard, or component:
-     * IMMEDIATELY call \`write_workspace_file\` to write \`index.html\`, \`src/App.tsx\`, styles, or components to disk in ${workspaceRoot}.
-     * NEVER just print code in chat without saving it to disk. The live preview depends on real files existing in the workspace!
-     * Connect real public APIs and libraries when appropriate.
-
-3. ACTION ENVIRONMENT & SELF-HEALING DISCIPLINE:
-   - When tasks involve calculations, data analysis, or script execution: call \`codeact_execute_python\` or \`codeact_execute_bash\`.
-   - TEST AND VERIFY AUTONOMOUSLY: After creating or editing code, call \`compile_and_test\` or \`browser_open_and_inspect\` to verify that the app compiles and renders.
-   - PERSISTENCE & AUTO-REPAIR: If a build fails or an error occurs:
-     * Read the compiler or runtime error carefully.
-     * Do NOT give up or ask the user to fix it!
-     * Use \`diagnose_and_auto_repair\`, \`patch_workspace_file\`, or \`write_workspace_file\` to fix the error.
-     * Re-test until the build succeeds. Try again, remake, adjust, or recreate until verified working.
-
-4. AGNO & CODEACT TOOL SUITE:
-   - CodeAct Action: \`codeact_execute_python\`, \`codeact_execute_bash\`.
-   - Verification & Self-Healing: \`browser_open_and_inspect\`, \`diagnose_and_auto_repair\`, \`compile_and_test\`, \`code_review_and_audit\`, \`get_git_diff\`.
-   - Code Navigation: \`search_code_regex\`, \`patch_workspace_file\`, \`read_workspace_file\`, \`write_workspace_file\`, \`list_workspace_dir\`, \`delete_workspace_file\`.
-   - Agno Framework: \`agno_rag_search\`, \`agno_get_memory_facts\`, \`agno_store_memory_fact\`, \`agno_update_workflow_phase\`, \`spawn_subagent\`, \`describe_progress\`, \`ask_user_question\`.
-   - Web & Live Data: \`web_search\`, \`fetch_web_page\`, \`public_apis_search\`.
-
-5. STRICT ZERO-EMOJI RULE:
-   - Absolutely no emojis in thoughts, outputs, code, or messages. Keep tone technical, precise, and professional.
+WORKSPACE: ${workspaceRoot}
 ${workspaceGroundTruth}`
 
     const systemInstruction = `${unifiedDirective}\n\nCurrent Time: ${new Date().toISOString()}\nActive Lens: ${agentObj.name}`
@@ -3270,15 +3088,21 @@ ${workspaceGroundTruth}`
     let turnCount = 0
     let shouldContinue = true
 
-    while (shouldContinue && turnCount < 10 && !abortController.signal.aborted) {
+    while (shouldContinue && turnCount < (taskMode === 'build' ? 5 : taskMode === 'research' ? 3 : 1) && !abortController.signal.aborted) {
       turnCount++
-      const generated = await generateGeminiContent(ai, targetModel, currentContents, {
+      const allToolDeclarations = (workspaceTools[0] as any).functionDeclarations as any[]
+      const allowedToolNames = taskMode === 'build'
+        ? new Set(['read_workspace_file', 'write_workspace_file', 'create_workspace_directory', 'delete_workspace_file', 'list_workspace_dir', 'compile_and_test', 'browser_open_and_inspect', 'diagnose_and_auto_repair', 'search_code_regex', 'patch_workspace_file', 'code_review_and_audit', 'get_git_diff', 'ask_user_question'])
+        : taskMode === 'research'
+          ? new Set(['web_search', 'fetch_web_page', 'browser_open_and_inspect'])
+          : new Set<string>()
+      const selectedTools = allToolDeclarations.filter((tool) => allowedToolNames.has(tool.name))
+      const requestConfig: Record<string, unknown> = {
         systemInstruction,
-        tools: workspaceTools as any,
-        thinkingConfig: {
-          thinkingBudget: 2048,
-        },
-      })
+        ...(selectedTools.length > 0 ? { tools: [{ functionDeclarations: selectedTools }] } : {}),
+        ...(taskMode !== 'chat' ? { thinkingConfig: { thinkingBudget: taskMode === 'build' ? 768 : 512 } } : {}),
+      }
+      const generated = await generateGeminiContent(ai, targetModel, currentContents, requestConfig)
       const response = generated.response
       targetModel = generated.model
 
