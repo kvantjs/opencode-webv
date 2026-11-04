@@ -43,9 +43,20 @@ export const Route = createRootRouteWithContext<{
         content:
           'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content',
       },
-      { title: 'Kvant' },
+      { title: 'opencode-web' },
+      {
+        name: 'description',
+        content:
+          'Web client and session interface for OpenCode AI coding assistant with Google Gemini family models',
+      },
+      { property: 'og:title', content: 'opencode-web' },
+      {
+        property: 'og:description',
+        content:
+          'Web client and session interface for OpenCode AI coding assistant with Google Gemini family models',
+      },
       { name: 'apple-mobile-web-app-capable', content: 'yes' },
-      { name: 'apple-mobile-web-app-title', content: 'Kvant' },
+      { name: 'apple-mobile-web-app-title', content: 'opencode-web' },
       { name: 'theme-color', content: '#faf9f7', media: '(prefers-color-scheme: light)' },
       { name: 'theme-color', content: '#161616', media: '(prefers-color-scheme: dark)' },
     ],

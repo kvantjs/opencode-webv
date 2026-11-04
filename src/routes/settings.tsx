@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { ArrowLeftIcon } from '~/components/icons'
 import { ProviderSettings } from '~/components/ProviderSettings'
+import { AuthCard } from '~/components/AuthCard'
 import { getStartupPage, setStartupPage, type StartupPage } from '~/lib/startup'
 import styles from './settings.module.css'
 
@@ -85,6 +86,10 @@ function SettingsPage() {
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Providers</h2>
           <ProviderSettings />
+        </section>
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Account</h2>
+          <AuthCard />
         </section>
       </div>
     </div>

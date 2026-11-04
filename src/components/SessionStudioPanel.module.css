@@ -401,3 +401,373 @@
   color: var(--text-muted);
   font-size: 13px;
 }
+
+/* --- CodeAct Sandbox Tab --- */
+.codeactWrap {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--bg);
+}
+
+.codeactHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+}
+
+.codeactTitle {
+  font-size: 13px;
+  font-weight: 650;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.codeactStatusPill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-inset);
+  color: var(--ok);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.codeactPulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.codeactBox {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.codeactToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.codeactLangSelector {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-inset);
+  padding: 2px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border);
+}
+
+.langBtn {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.langBtnActive {
+  background: var(--bg-raised);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+}
+
+.templateSelect {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.codeactEditor {
+  width: 100%;
+  min-height: 120px;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  color: var(--text);
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.codeactEditor:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.codeactActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.runBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-hover);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.runBtn:hover:not(:disabled) {
+  background: var(--border);
+}
+
+.runBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.terminalOutput {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.terminalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.terminalBody {
+  margin: 0;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 220px;
+  overflow-y: auto;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.terminalError {
+  color: var(--danger);
+  border-top: 1px dashed var(--danger);
+  margin-top: 6px;
+  padding-top: 6px;
+}
+
+.artifactsRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.artifactBadge {
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+/* --- Agno Ecosystem Tab --- */
+.agnoWrap {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--bg);
+}
+
+.agnoCard {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agnoCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.agnoCardTitle {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agentGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+@media (min-width: 600px) {
+  .agentGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.agentItem {
+  padding: 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agentItemName {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.agentItemRole {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.workflowList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workflowStep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  font-size: 12px;
+}
+
+.stepDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.stepDotDone {
+  background: var(--ok);
+}
+
+.ragSearchRow {
+  display: flex;
+  gap: 8px;
+}
+
+.ragInput {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--bg-inset);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.ragBtn {
+  padding: 6px 12px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ragResults {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ragDoc {
+  padding: 8px 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  font-size: 11.5px;
+}
+
+.ragDocTitle {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+  font-family: var(--font-mono);
+}
+
+.ragDocSnippet {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  max-height: 80px;
+  overflow: hidden;
+}

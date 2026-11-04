@@ -58,6 +58,8 @@ import {
   PencilIcon,
   StepsIcon,
   TrashIcon,
+  TerminalIcon,
+  NetworkIcon,
 } from '~/components/icons'
 import { ThinkingIndicator } from '~/components/ThinkingIndicator'
 import styles from './session.module.css'
@@ -138,7 +140,7 @@ function SessionPage() {
   const composer = React.useRef<ComposerHandle>(null)
   const scroll = React.useRef<HTMLDivElement>(null)
   const stick = React.useRef(true)
-  const [studioOpen, setStudioOpen] = React.useState(false)
+  const [studioOpen, setStudioOpen] = React.useState(true)
   const [studioTab, setStudioTab] = React.useState<StudioTab>('preview')
   const diff = useSessionDiff(
     sessionId,
@@ -404,10 +406,40 @@ function SessionPage() {
                   setStudioOpen(true)
                 }
               }}
-              title="Web App Live Preview"
+              title="Preview do Web App em Tempo Real"
               aria-label="Web App Live Preview"
             >
               <EyeIcon size={17} />
+            </button>
+            <button
+              type="button"
+              className={`${styles.iconButton} ${studioOpen && studioTab === 'codeact' ? styles.iconButtonActive : ''}`}
+              onClick={() => {
+                if (studioOpen && studioTab === 'codeact') setStudioOpen(false)
+                else {
+                  setStudioTab('codeact')
+                  setStudioOpen(true)
+                }
+              }}
+              title="Monitor de Ações CodeAct (Operado pelo Agente)"
+              aria-label="Monitor de Ações CodeAct"
+            >
+              <TerminalIcon size={17} />
+            </button>
+            <button
+              type="button"
+              className={`${styles.iconButton} ${studioOpen && studioTab === 'agno' ? styles.iconButtonActive : ''}`}
+              onClick={() => {
+                if (studioOpen && studioTab === 'agno') setStudioOpen(false)
+                else {
+                  setStudioTab('agno')
+                  setStudioOpen(true)
+                }
+              }}
+              title="Orquestração Autônoma Agno (Operada pelo Agente)"
+              aria-label="Orquestração Autônoma Agno"
+            >
+              <NetworkIcon size={17} />
             </button>
             <button
               type="button"

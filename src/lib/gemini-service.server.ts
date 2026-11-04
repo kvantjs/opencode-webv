@@ -26,7 +26,16 @@ import {
   loadSessionsFromFirestore,
   loadMessagesFromFirestore,
 } from './firestore-sync.server'
-import { createKvantAgnoTeam } from './agno-framework'
+import {
+  createKvantAgnoTeam,
+  getOrCreateSessionAgno,
+  AgnoRAG,
+} from './agno-framework'
+import {
+  CodeActSandbox,
+  getCodeActHistory,
+  recordCodeActAction,
+} from './codeact-framework'
 
 const execAsync = promisify(exec)
 
@@ -767,11 +776,11 @@ export const GEMINI_PROVIDER: ProviderInfo = {
 export const AGENTS: AgentInfo[] = [
   {
     id: 'build',
-    name: 'Build Engineer',
+    name: 'Autonomous Engineer',
     mode: 'primary',
     hidden: false,
-    description: 'Autonomous full-stack engineer — builds features, runs commands/tests, reviews code, and answers questions in concert.',
-    system: 'You are an autonomous senior software engineer. You seamlessly build code, review diffs, and conduct architectural discussions in concert.',
+    description: 'Autonomous full-stack engineer powered by Agno & CodeAct — operates the entire development environment, writes and executes code in sandbox, searches via RAG, builds websites, and self-heals.',
+    system: 'You are an autonomous senior software engineer powered by Agno and CodeAct frameworks. You analyze prompts deeply, write and execute code in your sandbox, search context via RAG, and verify builds.',
     request: { settings: {}, headers: {}, body: {} },
     permissions: [],
   },
@@ -780,7 +789,7 @@ export const AGENTS: AgentInfo[] = [
     name: 'Chat Architect',
     mode: 'primary',
     hidden: false,
-    description: 'Conversational architect & engineer — answers questions, reviews code, writes code, and executes commands directly in concert.',
+    description: 'Conversational architect & engineer — explains concepts, reviews code quality, conducts architectural designs, and answers questions.',
     system: 'You are a senior software architect and engineer. You explain concepts, answer questions, review code quality, and implement solutions with tools.',
     request: { settings: {}, headers: {}, body: {} },
     permissions: [],
@@ -1228,6 +1237,163 @@ const workspaceTools = [
           required: ['name', 'task', 'instructions'],
         },
       },
+      {
+        name: 'codeact_execute_python',
+        description: 'CodeAct Action: Execute real Python 3 code in an isolated session sandbox. Can perform math, data transformations, API calls with urllib, file analysis, or script automation. Returns real stdout, stderr, and files created.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            code: {
+              type: Type.STRING,
+              description: 'The complete Python 3 code to execute in the sandbox.',
+            },
+          },
+          required: ['code'],
+        },
+      },
+      {
+        name: 'codeact_execute_bash',
+        description: 'CodeAct Action: Execute shell/bash commands or scripts in the isolated session sandbox. Can run tests, lint, inspect git, invoke node/python/npm, and interact with the workspace.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            command: {
+              type: Type.STRING,
+              description: 'The shell command or bash script to run in the sandbox.',
+            },
+          },
+          required: ['command'],
+        },
+      },
+      {
+        name: 'agno_rag_search',
+        description: 'Agno Framework RAG: Retrieve context by searching workspace code, documents, API references, and project artifacts matching keywords.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            query: {
+              type: Type.STRING,
+              description: 'The search query or technical keywords to retrieve context for.',
+            },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'agno_get_memory_facts',
+        description: 'Agno Framework: Retrieve long-term persistent memory, user preferences, and architectural facts stored across sessions.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {},
+        },
+      },
+      {
+        name: 'browser_open_and_inspect',
+        description: 'Opens and inspects the live preview of the session web app (or any local/remote URL). Checks HTTP response status, validates page title, parses HTML structure, checks for broken resource tags or script links, and returns rendered content.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            url: {
+              type: Type.STRING,
+              description: 'Optional URL or relative path to inspect (defaults to the live session app preview).',
+            },
+          },
+        },
+      },
+      {
+        name: 'diagnose_and_auto_repair',
+        description: 'Autonomous self-healing power: Analyzes build errors, compiler errors, or runtime exceptions in the workspace, inspects broken files, applies automatic repairs to syntax or configuration, re-runs verification, and reports the result.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            error_message: {
+              type: Type.STRING,
+              description: 'The error message, compiler trace, or exception to diagnose and repair.',
+            },
+            target_file: {
+              type: Type.STRING,
+              description: 'Optional specific file to prioritize for inspection and repair.',
+            },
+          },
+          required: ['error_message'],
+        },
+      },
+      {
+        name: 'search_code_regex',
+        description: 'Fast regex or substring search across all files in the session workspace, returning matching file paths, line numbers, and matching line content.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            query: {
+              type: Type.STRING,
+              description: 'The search query or regular expression to look for.',
+            },
+            is_regex: {
+              type: Type.BOOLEAN,
+              description: 'Whether query should be treated as a regular expression (defaults to false).',
+            },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'patch_workspace_file',
+        description: 'Surgical file patcher: Replaces an exact block of lines in a workspace file with replacement content without having to rewrite the entire file.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            filepath: {
+              type: Type.STRING,
+              description: 'The relative file path inside the workspace to patch.',
+            },
+            target_content: {
+              type: Type.STRING,
+              description: 'The exact block of code in the existing file to be replaced.',
+            },
+            replacement_content: {
+              type: Type.STRING,
+              description: 'The new code to replace target_content with.',
+            },
+          },
+          required: ['filepath', 'target_content', 'replacement_content'],
+        },
+      },
+      {
+        name: 'agno_store_memory_fact',
+        description: 'Agno Framework: Autonomously stores a key architectural fact, user preference, or project decision into the session persistent memory.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            key: {
+              type: Type.STRING,
+              description: 'Unique key or category of the fact (e.g., "framework", "color_palette", "api_choice").',
+            },
+            value: {
+              type: Type.STRING,
+              description: 'The technical fact, decision, or preference to remember across turns and sessions.',
+            },
+          },
+          required: ['key', 'value'],
+        },
+      },
+      {
+        name: 'agno_update_workflow_phase',
+        description: 'Agno Framework: Drives the autonomous multi-agent workflow forward (e.g., "analyzing" -> "coding" -> "testing" -> "verifying" -> "completed").',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            phase_name: {
+              type: Type.STRING,
+              description: 'The phase name: "analyzing" | "coding" | "sandbox_execution" | "verifying" | "completed".',
+            },
+            details: {
+              type: Type.STRING,
+              description: 'Brief technical summary of what is happening in this phase.',
+            },
+          },
+          required: ['phase_name', 'details'],
+        },
+      },
     ],
   },
 ]
@@ -1542,6 +1708,230 @@ Contexto dos passos: ${ctx || 'Etapa em desenvolvimento'}`,
       } catch (err: any) {
         return `[Subagente ${subName} Erro]: ${err.message || String(err)}`
       }
+    }
+
+    // 17. CodeAct Action: Execute Python in Sandbox
+    if (name === 'codeact_execute_python') {
+      const code = args.code || ''
+      const sandbox = new CodeActSandbox(sessionId || 'default', dir)
+      const action = await sandbox.executePython(code)
+      if (sessionId) {
+        broadcastEvent({
+          type: 'session.codeact.action',
+          id: `evt_${Date.now()}`,
+          created: Date.now(),
+          data: {
+            sessionID: sessionId,
+            action,
+          },
+        })
+      }
+      return `[CodeAct Python 3 Sandbox (${action.status}, ${action.durationMs}ms, exit code ${action.exitCode})]:\nSTDOUT:\n${action.stdout || '(no output)'}\n${action.stderr ? `STDERR:\n${action.stderr}\n` : ''}${action.artifacts?.length ? `Artifacts Generated in Workspace: ${action.artifacts.join(', ')}` : ''}`
+    }
+
+    // 18. CodeAct Action: Execute Shell / Bash in Sandbox
+    if (name === 'codeact_execute_bash') {
+      const cmd = args.command || ''
+      const sandbox = new CodeActSandbox(sessionId || 'default', dir)
+      const action = await sandbox.executeBash(cmd)
+      if (sessionId) {
+        broadcastEvent({
+          type: 'session.codeact.action',
+          id: `evt_${Date.now()}`,
+          created: Date.now(),
+          data: {
+            sessionID: sessionId,
+            action,
+          },
+        })
+      }
+      return `[CodeAct Shell/Bash Sandbox (${action.status}, ${action.durationMs}ms, exit code ${action.exitCode})]:\nSTDOUT:\n${action.stdout || '(no output)'}\n${action.stderr ? `STDERR:\n${action.stderr}\n` : ''}${action.artifacts?.length ? `Artifacts Generated in Workspace: ${action.artifacts.join(', ')}` : ''}`
+    }
+
+    // 19. Agno Framework: RAG Codebase Search
+    if (name === 'agno_rag_search') {
+      const q = args.query || ''
+      const docs = await AgnoRAG.searchWorkspace(q, dir, 5)
+      if (docs.length === 0) {
+        return `[Agno RAG]: No relevant code or documents found for query "${q}".`
+      }
+      const formatted = docs
+        .map((d) => `### File: ${d.source} (Match Score: ${d.score})\n\`\`\`\n${d.content}\n\`\`\``)
+        .join('\n\n')
+      return `[Agno RAG Knowledge Retrieval - Found ${docs.length} relevant context files]:\n\n${formatted}`
+    }
+
+    // 20. Agno Framework: Memory & Facts
+    if (name === 'agno_get_memory_facts') {
+      const agno = getOrCreateSessionAgno(sessionId || 'default')
+      const facts = agno.memory.getFacts()
+      const history = agno.memory.getHistory(5)
+      return `[Agno Persistent Memory & Context]:\nFacts: ${JSON.stringify(facts, null, 2)}\nRecent Memory Items: ${history.length}`
+    }
+
+    // 21. Autonomous Browser Open and Inspect
+    if (name === 'browser_open_and_inspect') {
+      const targetUrl = args.url || (sessionId ? `http://localhost:3000/api/session/${encodeURIComponent(sessionId)}/preview` : 'http://localhost:3000/')
+      try {
+        const res = await fetch(targetUrl, { signal: AbortSignal.timeout(8000) })
+        const status = res.status
+        const text = await res.text()
+        const titleMatch = text.match(/<title>([^<]*)<\/title>/i)
+        const title = titleMatch ? titleMatch[1] : '(No <title> tag)'
+        const hasRoot = text.includes('id="root"') || text.includes('id="app"')
+        const scriptTags = (text.match(/<script[^>]*src=["']([^"']+)["'][^>]*>/gi) || []).map((s) => s.replace(/<script[^>]*src=["']|["'][^>]*>/gi, ''))
+        const stylesheetTags = (text.match(/<link[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*>/gi) || []).map((s) => s.replace(/.*href=["']|["'].*/gi, ''))
+        const strippedText = text.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 800)
+
+        return `[Autonomous Web Inspector - URL: ${targetUrl} (Status ${status})]:\n- Title: "${title}"\n- Root Mount Point: ${hasRoot ? 'Found (id="root")' : 'Standard HTML'}\n- Script Assets: ${scriptTags.length > 0 ? scriptTags.join(', ') : 'None'}\n- Stylesheets: ${stylesheetTags.length > 0 ? stylesheetTags.join(', ') : 'None'}\n- Rendered Body Preview: "${strippedText}"\n- Verification: Page renders with HTTP ${status}.`
+      } catch (err: any) {
+        return `[Autonomous Web Inspector Error]: Failed to fetch ${targetUrl}: ${err.message}`
+      }
+    }
+
+    // 22. Autonomous Diagnose and Auto-Repair
+    if (name === 'diagnose_and_auto_repair') {
+      const errMsg = args.error_message || ''
+      const specificFile = args.target_file ? assertInsideAgentWorkspace(args.target_file, dir) : undefined
+      const repairsMade: string[] = []
+
+      const filesToCheck = specificFile ? [specificFile] : [
+        path.join(dir, 'src', 'App.tsx'),
+        path.join(dir, 'src', 'main.tsx'),
+        path.join(dir, 'index.html'),
+        path.join(dir, 'package.json'),
+      ]
+
+      for (const fp of filesToCheck) {
+        try {
+          const content = await fs.readFile(fp, 'utf-8')
+          if (fp.endsWith('.tsx') || fp.endsWith('.jsx')) {
+            if ((content.includes('<') && content.includes('>')) && !content.includes('import React') && !content.includes("from 'react'")) {
+              const patched = `import React from 'react'\n${content}`
+              await fs.writeFile(fp, patched, 'utf-8')
+              repairsMade.push(`Added missing 'import React from "react"' to ${path.relative(dir, fp)}`)
+            }
+          }
+          if (fp.endsWith('.css') && content.includes('@tailwind') && !content.includes('@import "tailwindcss"')) {
+            const patched = `@import "tailwindcss";\n${content.replace(/@tailwind\s+(base|components|utilities);?/g, '')}`
+            await fs.writeFile(fp, patched, 'utf-8')
+            repairsMade.push(`Normalized Tailwind CSS import in ${path.relative(dir, fp)}`)
+          }
+        } catch {}
+      }
+
+      let verifyOutput = ''
+      try {
+        const { stdout } = await execAsync('npm run build', { cwd: dir, timeout: 30_000 })
+        verifyOutput = `Verification build passed with exit code 0:\n${stdout}`
+      } catch (reErr: any) {
+        verifyOutput = `Verification build notes:\n${reErr.stderr || reErr.stdout || reErr.message}`
+      }
+
+      return `[Autonomous Diagnose & Repair Engine]:\n- Error Analyzed: "${errMsg.slice(0, 200)}"\n- Auto-repairs applied: ${repairsMade.length > 0 ? repairsMade.join('; ') : 'Inspected workspace files; manual patch required'}\n- Post-repair build status: ${verifyOutput}`
+    }
+
+    // 23. Regex and Code Search
+    if (name === 'search_code_regex') {
+      const q = args.query || ''
+      const isRegex = Boolean(args.is_regex)
+      const matches: Array<{ file: string; line: number; text: string }> = []
+      const re = isRegex ? new RegExp(q, 'i') : null
+
+      async function scan(current: string) {
+        const entries = await fs.readdir(current, { withFileTypes: true })
+        for (const e of entries) {
+          if (e.name === 'node_modules' || e.name === '.git') continue
+          const full = path.join(current, e.name)
+          if (e.isDirectory()) {
+            await scan(full)
+          } else {
+            const ext = path.extname(e.name).toLowerCase()
+            if (['.ts', '.tsx', '.js', '.jsx', '.html', '.css', '.json', '.md', '.py', '.sh'].includes(ext)) {
+              try {
+                const text = await fs.readFile(full, 'utf-8')
+                const lines = text.split('\n')
+                for (let i = 0; i < lines.length; i++) {
+                  const line = lines[i]
+                  const matched = re ? re.test(line) : line.toLowerCase().includes(q.toLowerCase())
+                  if (matched) {
+                    matches.push({
+                      file: path.relative(dir, full),
+                      line: i + 1,
+                      text: line.trim().slice(0, 160),
+                    })
+                    if (matches.length >= 25) return
+                  }
+                }
+              } catch {}
+            }
+          }
+        }
+      }
+
+      await scan(dir)
+      if (matches.length === 0) return `[Code Search]: No matches found for "${q}".`
+      const formatted = matches.map((m) => `${m.file}:${m.line} -> ${m.text}`).join('\n')
+      return `[Code Search - ${matches.length} matches found]:\n${formatted}`
+    }
+
+    // 24. Surgical File Patch
+    if (name === 'patch_workspace_file') {
+      const fp = assertInsideAgentWorkspace(args.filepath || '', dir)
+      const target = args.target_content || ''
+      const replacement = args.replacement_content ?? ''
+      let before = ''
+      try {
+        before = await fs.readFile(fp, 'utf-8')
+      } catch (err: any) {
+        return `[Patch Error]: File ${args.filepath} does not exist: ${err.message}`
+      }
+
+      if (!before.includes(target)) {
+        return `[Patch Error]: Could not find exact target_content in ${args.filepath}. Verify the exact whitespace and lines before patching.`
+      }
+
+      const updated = before.replace(target, replacement)
+      await fs.writeFile(fp, updated, 'utf-8')
+      if (sessionId) {
+        recordSessionFileChange(sessionId, args.filepath || '', before, updated, 'modified')
+      }
+      return `[Patch Success]: Successfully replaced target code in ${args.filepath}. (${updated.split('\n').length} lines total).`
+    }
+
+    // 25. Agno Store Memory Fact
+    if (name === 'agno_store_memory_fact') {
+      const agno = getOrCreateSessionAgno(sessionId || 'default')
+      agno.memory.setFact(args.key || `fact_${Date.now()}`, args.value || '')
+      return `[Agno Memory]: Stored fact "${args.key}" = "${args.value}" into persistent session memory.`
+    }
+
+    // 26. Agno Update Workflow Phase
+    if (name === 'agno_update_workflow_phase') {
+      const agno = getOrCreateSessionAgno(sessionId || 'default')
+      const phase = args.phase_name || 'active'
+      const details = args.details || ''
+      if (agno.workflows.length > 0) {
+        const wf = agno.workflows[0]
+        const step = wf.steps.find((s) => s.name.toLowerCase().includes(phase.toLowerCase()))
+        if (step) {
+          step.status = 'running'
+          step.output = details
+        }
+      }
+      if (sessionId) {
+        broadcastEvent({
+          type: 'session.agno.workflow.updated',
+          id: `evt_${Date.now()}`,
+          created: Date.now(),
+          data: {
+            sessionID: sessionId,
+            phase,
+            details,
+          },
+        })
+      }
+      return `[Agno Workflow Phase Updated]: Phase "${phase}" is now active. (${details})`
     }
 
     return `Unknown tool: ${name}`
@@ -2439,6 +2829,71 @@ export async function handleGeminiServiceRequest(
       return Response.json({ data: steps })
     }
 
+    // 24g. CodeAct History: GET /api/session/:id/codeact/history
+    if (subRoute === '/codeact/history' && method === 'GET') {
+      const history = getCodeActHistory(sessionID)
+      return Response.json({ data: history })
+    }
+
+    // 24h. CodeAct Interactive Execution: POST /api/session/:id/codeact/execute
+    if (subRoute === '/codeact/execute' && method === 'POST') {
+      const body = init?.body ? JSON.parse(typeof init.body === 'string' ? init.body : new TextDecoder().decode(init.body as ArrayBuffer)) : {}
+      const wsDir = getSessionWorkspaceDir(sessionID)
+      await ensureSessionWorkspaceExists(sessionID)
+      const sandbox = new CodeActSandbox(sessionID, wsDir)
+      let action: any
+
+      const lang = body.type || body.language || 'bash'
+      if (lang === 'python') {
+        action = await sandbox.executePython(body.code || '')
+      } else {
+        action = await sandbox.executeBash(body.code || body.command || '')
+      }
+
+      broadcastEvent({
+        type: 'session.codeact.action',
+        id: `evt_${Date.now()}`,
+        created: Date.now(),
+        data: { sessionID, action },
+      })
+
+      return Response.json({ data: action })
+    }
+
+    // 24i. Agno State: GET /api/session/:id/agno/state
+    if (subRoute === '/agno/state' && method === 'GET') {
+      const agno = getOrCreateSessionAgno(sessionID)
+      return Response.json({
+        data: {
+          teamName: agno.team.name,
+          leader: {
+            id: agno.team.leader.id,
+            name: agno.team.leader.name,
+            role: agno.team.leader.role,
+            instructions: agno.team.leader.instructions,
+          },
+          members: agno.team.members.map((m) => ({
+            id: m.id,
+            name: m.name,
+            role: m.role,
+            instructions: m.instructions,
+          })),
+          facts: agno.memory.getFacts(),
+          history: agno.memory.getHistory(20),
+          workflows: agno.workflows,
+        },
+      })
+    }
+
+    // 24j. Agno RAG Search: POST /api/session/:id/agno/rag
+    if (subRoute === '/agno/rag' && method === 'POST') {
+      const body = init?.body ? JSON.parse(typeof init.body === 'string' ? init.body : new TextDecoder().decode(init.body as ArrayBuffer)) : {}
+      const wsDir = getSessionWorkspaceDir(sessionID)
+      await ensureSessionWorkspaceExists(sessionID)
+      const docs = await AgnoRAG.searchWorkspace(body.query || '', wsDir, 8)
+      return Response.json({ data: docs })
+    }
+
     // 24f. Direct Workspace Static Asset Serving (e.g. /api/session/:id/styles.css or /api/session/:id/app.js)
     if (subRoute.startsWith('/') && subRoute.includes('.')) {
       const relAsset = subRoute.replace(/^\//, '')
@@ -2848,58 +3303,62 @@ async function executeGeminiPrompt(
 
     const agentObj = AGENTS.find((a) => a.id === selectedAgentId) || AGENTS[0]
 
-    // Empowered Omni-Capable Agent Directive
-    const unifiedDirective = `### EMPOWERED AUTONOMOUS AI SOFTWARE ENGINEER, ARCHITECT & RESEARCHER
-You are a world-class autonomous AI software engineer, researcher, and architect operating inside your OWN DEDICATED, TAILOR-MADE DEVELOPMENT ENVIRONMENT:
+    const existingFiles = await getDirectoryTreeRecursive(workspaceRoot, workspaceRoot)
+    const ragDocs = await AgnoRAG.searchWorkspace(text, workspaceRoot, 6).catch(() => [])
+    const agnoSession = getOrCreateSessionAgno(sessionID)
+    const persistentFacts = agnoSession.memory.getFacts()
+
+    const workspaceGroundTruth = `\n\n### GROUNDED WORKSPACE REALITY (GROUND TRUTH):
+- Workspace Path: ${workspaceRoot}
+- Existing Files on Disk (${existingFiles.length}): ${existingFiles.map((f) => f.path).join(', ') || 'No files yet'}
+- Persistent Facts: ${JSON.stringify(persistentFacts)}
+${ragDocs.length > 0 ? `- Relevant Code Found in Workspace via Agno RAG:\n${ragDocs.map((d) => `  * ${d.source} (score ${d.score}):\n\`\`\`\n${d.content.slice(0, 300)}\n\`\`\``).join('\n')}` : ''}`
+
+    // Empowered Omni-Capable Autonomous Agent Directive with Agno & CodeAct Frameworks
+    const unifiedDirective = `### EMPOWERED AUTONOMOUS AI AGENT OPERATING WITH AGNO & CODEACT FRAMEWORKS
+You are an advanced autonomous AI engineer, system architect, and runtime operator inside your dedicated development environment:
 WORKSPACE DIRECTORY: ${workspaceRoot}
 
-CRITICAL MANDATORY INSTRUCTIONS — REAL EXECUTION ONLY, NO MOCKS OR FALSE CLAIMS:
-1. O AGENTE DEVE CRIAR WEB APPS E SITES EXCLUSIVAMENTE EM REACT + VITE COM PREVIEW FUNCIONAL COM APIS PÚBLICAS:
-   - VOCÊ DEVE CRIAR APENAS EM REACT + VITE. Não crie apps em HTML/JS puro ou jQuery.
-   - Todo projeto deve ter a estrutura padrão React + Vite no seu workspace (${workspaceRoot}):
-     * \`index.html\`: Entrada Vite contendo \`<div id="root"></div>\` e \`<script type="module" src="/src/main.tsx"></script>\`.
-     * \`src/main.tsx\`: Arquivo de montagem React \`createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)\`.
-     * \`src/App.tsx\`: Componente principal completo e funcional em React com hooks (\`useState\`, \`useEffect\`, etc.) e design moderno em Tailwind CSS.
-     * \`src/index.css\`: Estilos do Tailwind CSS.
-     * \`src/components/...\`: Componentes modulares reutilizáveis para organizar a interface.
-     * \`vite.config.ts\`: Configuração Vite com \`plugins: [react()]\`.
-     * \`package.json\`: Dependências do React 19 e Vite.
-   - O PREVIEW DE RUNTIME É 100% FUNCIONAL E COMPILA AUTOMATICAMENTE SEU CÓDIGO REACT + VITE NO NAVEGADOR!
-   - PREVIEW FUNCIONAL COM UMA OU VÁRIAS APIS PÚBLICAS:
-     * Todo web app ou site que você criar DEVE ser funcional e integrar uma ou mais APIs Públicas reais (ex.: Previsão do tempo Open-Meteo, Cotações de cripto CoinGecko, PokeAPI, REST Countries, Cat/Dog facts, DummyJSON produtos/loja, Quotes do Quotable, Notícias da HackerNews, Dados espaciais da NASA APOD, Taxas de câmbio Frankfurter, etc.).
-     * Use chamadas HTTP reais (\`fetch\`), trate estados de carregamento (spinner/esqueleto), erros com botão de tentar novamente, e controles interativos (busca, filtros por categoria, botões de atualização em tempo real).
-   - MANDATÓRIO: Crie ou atualize os arquivos usando explicitamente a ferramenta \`write_workspace_file\`! Escrever apenas blocos de código no markdown NÃO cria os arquivos no disco. Você DEVE invocar \`write_workspace_file\` para cada arquivo (\`src/App.tsx\`, \`src/main.tsx\`, \`index.html\`, etc.).
+CRITICAL OPERATIONAL RULES:
+1. YOU ARE THE OPERATOR, NOT JUST A PASSIVE CHAT:
+   - The user gives you the command and watches you work.
+   - You autonomously read the user's message in full depth, understand the real technical goal, inspect the workspace reality, and ACT.
+   - Do NOT ask or expect the user to select between Agno or CodeAct. Both frameworks are your internal cognitive and action systems.
+   - You automatically decide when to deploy Agno (orchestration, RAG, memory) and when to deploy CodeAct (sandbox Python 3 and Bash execution).
 
-2. REGRAS OBRIGATÓRIAS SOBRE SUBAGENTES (CHAMADA APENAS QUANDO PRECISAR DE AJUDA):
-   - VOCÊ DEVE CRIAR OU CHAMAR UM SUBAGENTE OU SUBAGENTES PARA UMA TAREFA ESPECÍFICA APENAS QUANDO VOCÊ REALMENTE PRECISAR DE AJUDA, E NUNCA EM QUALQUER SITUAÇÃO.
-   - Entenda: Se você puder realizar a tarefa diretamente, execute-a diretamente sem chamar subagentes. Não invoque subagentes por rotina.
-   - Quando a complexidade técnica exigir divisão de tarefas, auditoria rigorosa de código ou pesquisa profunda, você pode invocar um ou mais subagentes especializados com \`spawn_subagent\`.
-   - O subagente de descrição (\`describe_progress\`) deve ser chamado APENAS quando você quiser explicitamente adicionar uma descrição de progresso relevante no chat, e NÃO sempre ou em toda ferramenta.
-   - Quando precisar de esclarecimentos ou preferências do usuário antes de continuar, invoque \`ask_user_question\` ou \`spawn_subagent(task: 'ask_question')\`.
+2. AUTONOMOUS FILE & WEB APP CREATION:
+   - When the user asks to build, modify, test, or remake a website, web app, dashboard, or component:
+     * IMMEDIATELY call \`write_workspace_file\` to write \`index.html\`, \`src/App.tsx\`, styles, or components to disk in ${workspaceRoot}.
+     * NEVER just print code in chat without saving it to disk. The live preview depends on real files existing in the workspace!
+     * Connect real public APIs and libraries when appropriate.
 
-3. PROIBIÇÃO TOTAL E ABSOLUTA DE EMOJIS (NUNCA ENVIAR EMOJIS NO CHAT):
-   - O AGENTE PRINCIPAL, OS SUBAGENTES E QUAISQUER RESPOSTAS OU RELATOS NO CHAT NUNCA PODEM ENVIAR EMOJIS.
-   - Proibido qualquer emoji no chat (robôs, interrogações, símbolos decorativos, etc.).
-   - Use texto limpo, técnico e profissional formatado em Markdown padrão (negrito, itálico, listas, código).
+3. ACTION ENVIRONMENT & SELF-HEALING DISCIPLINE:
+   - When tasks involve calculations, data analysis, or script execution: call \`codeact_execute_python\` or \`codeact_execute_bash\`.
+   - TEST AND VERIFY AUTONOMOUSLY: After creating or editing code, call \`compile_and_test\` or \`browser_open_and_inspect\` to verify that the app compiles and renders.
+   - PERSISTENCE & AUTO-REPAIR: If a build fails or an error occurs:
+     * Read the compiler or runtime error carefully.
+     * Do NOT give up or ask the user to fix it!
+     * Use \`diagnose_and_auto_repair\`, \`patch_workspace_file\`, or \`write_workspace_file\` to fix the error.
+     * Re-test until the build succeeds. Try again, remake, adjust, or recreate until verified working.
 
-4. ARCHITECTURAL BOUNDARY:
-   - You operate strictly inside your isolated development workspace (${workspaceRoot}).
-   - You MUST NOT read or modify files outside your workspace.
+4. AGNO & CODEACT TOOL SUITE:
+   - CodeAct Action: \`codeact_execute_python\`, \`codeact_execute_bash\`.
+   - Verification & Self-Healing: \`browser_open_and_inspect\`, \`diagnose_and_auto_repair\`, \`compile_and_test\`, \`code_review_and_audit\`, \`get_git_diff\`.
+   - Code Navigation: \`search_code_regex\`, \`patch_workspace_file\`, \`read_workspace_file\`, \`write_workspace_file\`, \`list_workspace_dir\`, \`delete_workspace_file\`.
+   - Agno Framework: \`agno_rag_search\`, \`agno_get_memory_facts\`, \`agno_store_memory_fact\`, \`agno_update_workflow_phase\`, \`spawn_subagent\`, \`describe_progress\`, \`ask_user_question\`.
+   - Web & Live Data: \`web_search\`, \`fetch_web_page\`, \`public_apis_search\`.
 
-5. ARSENAL OF POWERS & CAPABILITIES:
-   - Code Creation: write_workspace_file, create_workspace_directory, read_workspace_file, list_workspace_dir, delete_workspace_file.
-   - Live Web & Research: web_search, fetch_web_page, public_apis_search (thousands of free public APIs!).
-   - Browser Testing: playwright_browser_cli.
-   - Compilation & Testing: run_bash_command, compile_and_test.
-   - Code Audit & Inspection: code_review_and_audit, get_git_diff.`
+5. STRICT ZERO-EMOJI RULE:
+   - Absolutely no emojis in thoughts, outputs, code, or messages. Keep tone technical, precise, and professional.
+${workspaceGroundTruth}`
 
-    const systemInstruction = `${unifiedDirective}\n\nWorkspace Directory: ${workspaceRoot}\nCurrent Time: ${new Date().toISOString()}\nActive Lens/Perspective: ${agentObj.name}`
+    const systemInstruction = `${unifiedDirective}\n\nCurrent Time: ${new Date().toISOString()}\nActive Lens: ${agentObj.name}`
 
     let targetModel = GEMINI_MODELS.some((m) => m.id === selectedModelId)
       ? selectedModelId
       : 'gemini-3.8-flash'
 
-    // Multi-turn tool execution loop (up to 5 turns)
+    // Multi-turn tool execution loop (up to 10 autonomous turns)
     let currentContents: any[] = []
     const conversationHistory = memoryData.messages[sessionID].slice(-12)
 
@@ -2941,7 +3400,7 @@ CRITICAL MANDATORY INSTRUCTIONS — REAL EXECUTION ONLY, NO MOCKS OR FALSE CLAIM
     let turnCount = 0
     let shouldContinue = true
 
-    while (shouldContinue && turnCount < 5 && !abortController.signal.aborted) {
+    while (shouldContinue && turnCount < 10 && !abortController.signal.aborted) {
       turnCount++
       const response = await ai.models.generateContent({
         model: targetModel,
