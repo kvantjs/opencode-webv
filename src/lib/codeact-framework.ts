@@ -117,7 +117,7 @@ export class CodeActSandbox {
       action.status = 'failed'
       action.stdout = err.stdout || ''
       action.stderr = err.stderr || err.message || String(err)
-      action.exitCode = err.code ?? 1
+      action.exitCode = typeof err.code === 'number' ? err.code : err.signal ? 128 : 1
       action.durationMs = Date.now() - startTime
     }
 
@@ -176,7 +176,7 @@ export class CodeActSandbox {
       action.status = 'failed'
       action.stdout = err.stdout || ''
       action.stderr = err.stderr || err.message || String(err)
-      action.exitCode = err.code ?? 1
+      action.exitCode = typeof err.code === 'number' ? err.code : err.signal ? 128 : 1
       action.durationMs = Date.now() - startTime
     }
 

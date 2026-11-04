@@ -280,18 +280,13 @@ export class AgnoTeam {
     wf.status = 'running'
     let output = `[Agno Multi-Agent Team: ${this.name}]\n`
     output += `Leader: ${this.leader.name} initiated dynamic workflow routing.\n`
-
-    for (const step of wf.steps) {
-      const stepStart = Date.now()
-      step.status = 'running'
-      const agent = this.getMember(step.agentId) || this.leader
-      output += `-> Executing Step [${step.name}] via ${agent.name} (${agent.role})\n`
-      step.durationMs = Date.now() - stepStart
-      step.status = 'completed'
-    }
-
-    wf.status = 'completed'
-    output += `Agno team workflow synchronized. Action environment ready.`
+    const ragStartedAt = Date.now()
+    const documents = await AgnoRAG.searchWorkspace(taskDescription, context.workspaceDir, 6).catch(() => [])
+    wf.steps[0].status = 'completed'
+    wf.steps[0].durationMs = Date.now() - ragStartedAt
+    wf.steps[0].output = `Workspace RAG returned ${documents.length} relevant file(s).`
+    output += `-> Executed [${wf.steps[0].name}]: retrieved ${documents.length} relevant workspace file(s).\n`
+    output += `Remaining CodeAct, build, and review steps are pending until their tools actually run.`
     return { output, workflow: wf }
   }
 }
@@ -359,6 +354,39 @@ export function getOrCreateSessionAgno(sessionId: string): { team: AgnoTeam; mem
 
   sessionAgnoMap.set(sessionId, entry)
   return entry
+}
+
+export function updateSessionWorkflowPhase(sessionId: string, phase: string, details = ''): boolean {
+  const session = sessionAgnoMap.get(sessionId)
+  const workflow = session?.workflows[0]
+  if (!workflow) return false
+
+  const phaseIndex: Record<string, number> = {
+    analyzing: 0,
+    sandbox_execution: 1,
+    coding: 2,
+    verifying: 3,
+  }
+  if (phase === 'completed') {
+    for (const step of workflow.steps) {
+      if (step.status !== 'failed') step.status = 'completed'
+      if (details) step.output = details
+    }
+    workflow.status = 'completed'
+    return true
+  }
+
+  const index = phaseIndex[phase]
+  if (index === undefined || !workflow.steps[index]) return false
+  for (let i = 0; i < index; i++) {
+    if (workflow.steps[i].status === 'pending' || workflow.steps[i].status === 'running') {
+      workflow.steps[i].status = 'completed'
+    }
+  }
+  workflow.steps[index].status = 'running'
+  workflow.steps[index].output = details
+  workflow.status = 'running'
+  return true
 }
 
 export function createKvantAgnoTeam(): AgnoTeam {

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
 import ts from 'typescript'
+import { serveVitePreview } from './vite-preview.server'
 import { GoogleGenAI, Type } from '@google/genai'
 import type {
   AgentInfo,
@@ -27,8 +28,8 @@ import {
   loadMessagesFromFirestore,
 } from './firestore-sync.server'
 import {
-  createKvantAgnoTeam,
   getOrCreateSessionAgno,
+  updateSessionWorkflowPhase,
   AgnoRAG,
 } from './agno-framework'
 import {
@@ -1715,6 +1716,7 @@ Contexto dos passos: ${ctx || 'Etapa em desenvolvimento'}`,
       const code = args.code || ''
       const sandbox = new CodeActSandbox(sessionId || 'default', dir)
       const action = await sandbox.executePython(code)
+      if (sessionId) updateSessionWorkflowPhase(sessionId, 'sandbox_execution', `Python action ${action.status} (exit ${action.exitCode}).`)
       if (sessionId) {
         broadcastEvent({
           type: 'session.codeact.action',
@@ -1734,6 +1736,7 @@ Contexto dos passos: ${ctx || 'Etapa em desenvolvimento'}`,
       const cmd = args.command || ''
       const sandbox = new CodeActSandbox(sessionId || 'default', dir)
       const action = await sandbox.executeBash(cmd)
+      if (sessionId) updateSessionWorkflowPhase(sessionId, 'sandbox_execution', `Bash action ${action.status} (exit ${action.exitCode}).`)
       if (sessionId) {
         broadcastEvent({
           type: 'session.codeact.action',
@@ -1908,17 +1911,9 @@ Contexto dos passos: ${ctx || 'Etapa em desenvolvimento'}`,
 
     // 26. Agno Update Workflow Phase
     if (name === 'agno_update_workflow_phase') {
-      const agno = getOrCreateSessionAgno(sessionId || 'default')
       const phase = args.phase_name || 'active'
       const details = args.details || ''
-      if (agno.workflows.length > 0) {
-        const wf = agno.workflows[0]
-        const step = wf.steps.find((s) => s.name.toLowerCase().includes(phase.toLowerCase()))
-        if (step) {
-          step.status = 'running'
-          step.output = details
-        }
-      }
+      const updated = sessionId ? updateSessionWorkflowPhase(sessionId, phase, details) : false
       if (sessionId) {
         broadcastEvent({
           type: 'session.agno.workflow.updated',
@@ -1931,7 +1926,9 @@ Contexto dos passos: ${ctx || 'Etapa em desenvolvimento'}`,
           },
         })
       }
-      return `[Agno Workflow Phase Updated]: Phase "${phase}" is now active. (${details})`
+      return updated
+        ? `[Agno Workflow Phase Updated]: Phase "${phase}" is now active. (${details})`
+        : `[Agno Workflow]: No workflow step matched phase "${phase}" for this session.`
     }
 
     return `Unknown tool: ${name}`
@@ -2513,228 +2510,25 @@ export async function handleGeminiServiceRequest(
       return Response.json({ data: diffList })
     }
 
-    // 24b. Live Web App Preview: GET /api/session/:id/preview and /preview/*
+    // 24b. Real Vite dev-server preview for each isolated session workspace.
     if (subRoute === '/preview' || subRoute.startsWith('/preview/')) {
-      const relPath = subRoute.replace(/^\/preview\/?/, '') || 'index.html'
+      const relPath = subRoute.replace(/^\/preview\/?/, '')
       const wsDir = getSessionWorkspaceDir(sessionID)
       await ensureSessionWorkspaceExists(sessionID)
-
-      let targetPath = path.resolve(wsDir, relPath)
-      let found = false
       try {
-        await fs.access(targetPath)
-        found = true
-      } catch {
-        // Try resolving module extensions: .tsx, .ts, .jsx, .js, /index.tsx
-        for (const candidate of [
-          `${targetPath}.tsx`,
-          `${targetPath}.ts`,
-          `${targetPath}.jsx`,
-          `${targetPath}.js`,
-          path.resolve(targetPath, 'index.tsx'),
-          path.resolve(targetPath, 'index.ts'),
-        ]) {
-          try {
-            await fs.access(candidate)
-            targetPath = candidate
-            found = true
-            break
-          } catch {}
-        }
-
-        if (!found && (relPath === 'index.html' || !relPath)) {
-          for (const candidate of ['index.html', 'src/index.html', 'public/index.html', 'index.htm', 'main.html']) {
-            const alt = path.resolve(wsDir, candidate)
-            try {
-              await fs.access(alt)
-              targetPath = alt
-              found = true
-              break
-            } catch {}
-          }
-        }
+        const previewRequest = new Request(parsed, {
+          method,
+          headers: reqHeaders,
+          ...(method === 'GET' || method === 'HEAD' ? {} : { body: init?.body as BodyInit | null | undefined }),
+          signal: init?.signal,
+        })
+        return await serveVitePreview(sessionID, wsDir, previewRequest, relPath)
+      } catch (error: any) {
+        return Response.json(
+          { error: 'Could not start the Vite preview server.', details: error?.message || String(error) },
+          { status: 503 },
+        )
       }
-
-      if (found) {
-        try {
-          let content = await fs.readFile(targetPath)
-          const ext = path.extname(targetPath).toLowerCase()
-
-          // Real-time React + Vite TSX/JSX Transpiler
-          if (ext === '.tsx' || ext === '.jsx' || ext === '.ts') {
-            const rawText = content.toString('utf-8')
-            try {
-              const transpiled = ts.transpileModule(rawText, {
-                compilerOptions: {
-                  target: ts.ScriptTarget.ES2022,
-                  module: ts.ModuleKind.ESNext,
-                  jsx: ts.JsxEmit.ReactJSX,
-                  jsxImportSource: 'react',
-                  moduleResolution: ts.ModuleResolutionKind.Bundler,
-                  allowJs: true,
-                },
-                fileName: targetPath,
-              })
-
-              let js = transpiled.outputText
-
-              // Resolve relative imports without explicit extensions (e.g. from './App' -> from './App.tsx')
-              js = js.replace(/from\s+['"](\.[^'"]+)['"]/g, (match, imp) => {
-                if (
-                  !imp.endsWith('.js') &&
-                  !imp.endsWith('.ts') &&
-                  !imp.endsWith('.tsx') &&
-                  !imp.endsWith('.jsx') &&
-                  !imp.endsWith('.css') &&
-                  !imp.endsWith('.json')
-                ) {
-                  return `from '${imp}.tsx'`
-                }
-                return match
-              })
-
-              // Map unmapped npm modules to esm.sh CDN so public libraries load effortlessly
-              js = js.replace(/from\s+['"]([a-zA-Z0-9@][^'"]*)['"]/g, (match, pkg) => {
-                if (pkg.startsWith('http://') || pkg.startsWith('https://')) return match
-                const standardMap = [
-                  'react',
-                  'react-dom',
-                  'react/jsx-runtime',
-                  'react/jsx-dev-runtime',
-                  'react-dom/client',
-                  'lucide-react',
-                  'canvas-confetti',
-                  'clsx',
-                  'tailwind-merge',
-                ]
-                if (standardMap.includes(pkg) || pkg.startsWith('react/') || pkg.startsWith('react-dom/')) {
-                  return match
-                }
-                return `from 'https://esm.sh/${pkg}'`
-              })
-
-              return new Response(js, {
-                headers: {
-                  'content-type': 'application/javascript; charset=utf-8',
-                  'x-frame-options': 'SAMEORIGIN',
-                  'cache-control': 'no-cache',
-                  'access-control-allow-origin': '*',
-                },
-              })
-            } catch (transpileErr: any) {
-              const errJs = `console.error("Transpilation error in ${relPath}:", ${JSON.stringify(transpileErr.message)});`
-              return new Response(errJs, {
-                headers: { 'content-type': 'application/javascript; charset=utf-8' },
-              })
-            }
-          }
-
-          const mimeTypes: Record<string, string> = {
-            '.html': 'text/html; charset=utf-8',
-            '.htm': 'text/html; charset=utf-8',
-            '.css': 'text/css; charset=utf-8',
-            '.js': 'application/javascript; charset=utf-8',
-            '.mjs': 'application/javascript; charset=utf-8',
-            '.json': 'application/json; charset=utf-8',
-            '.svg': 'image/svg+xml',
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.ico': 'image/x-icon',
-            '.txt': 'text/plain; charset=utf-8',
-            '.md': 'text/markdown; charset=utf-8',
-          }
-
-          if (ext === '.html' || ext === '.htm') {
-            let htmlStr = content.toString('utf-8')
-            const baseTag = `<base href="/api/proxy/api/session/${encodeURIComponent(sessionID)}/preview/">`
-            const importMap = `
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@19?dev",
-    "react/": "https://esm.sh/react@19/",
-    "react/jsx-runtime": "https://esm.sh/react@19/jsx-runtime?dev",
-    "react/jsx-dev-runtime": "https://esm.sh/react@19/jsx-dev-runtime?dev",
-    "react-dom": "https://esm.sh/react-dom@19?dev",
-    "react-dom/": "https://esm.sh/react-dom@19/",
-    "react-dom/client": "https://esm.sh/react-dom@19/client?dev",
-    "lucide-react": "https://esm.sh/lucide-react@0.469.0",
-    "canvas-confetti": "https://esm.sh/canvas-confetti@1.9.4",
-    "clsx": "https://esm.sh/clsx@2.1.1",
-    "tailwind-merge": "https://esm.sh/tailwind-merge@2.6.0"
-  }
-}
-</script>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-  window.__vite_plugin_react_preamble_installed__ = true;
-  window.addEventListener('error', function(e) {
-    console.error('[Vite Runtime Preview Error]:', e.error || e.message);
-    var box = document.getElementById('runtime-error-toast');
-    if (!box) {
-      box = document.createElement('div');
-      box.id = 'runtime-error-toast';
-      box.style = 'position:fixed;bottom:16px;left:16px;right:16px;background:rgba(239,68,68,0.95);color:#fff;padding:12px 16px;border-radius:12px;font-family:monospace;font-size:12px;z-index:999999;box-shadow:0 10px 25px rgba(0,0,0,0.5);display:flex;justify-content:space-between;align-items:center;backdrop-filter:blur(8px);';
-      document.body.appendChild(box);
-    }
-    box.innerHTML = '<div><strong>Preview Error:</strong> ' + (e.message || 'Check browser console') + '</div><button onclick="this.parentElement.remove()" style="background:#fff;color:#ef4444;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-weight:bold;margin-left:12px;">✕</button>';
-  });
-</script>
-`
-            if (!htmlStr.includes('<base ') && htmlStr.includes('<head>')) {
-              htmlStr = htmlStr.replace('<head>', `<head>\n  ${baseTag}\n${importMap}`)
-              content = Buffer.from(htmlStr, 'utf-8')
-            } else if (!htmlStr.includes('<base ') && /<head[^>]*>/i.test(htmlStr)) {
-              htmlStr = htmlStr.replace(/<head[^>]*>/i, (m) => `${m}\n  ${baseTag}\n${importMap}`)
-              content = Buffer.from(htmlStr, 'utf-8')
-            } else if (!htmlStr.includes('<base ')) {
-              htmlStr = `<head>${baseTag}\n${importMap}</head>\n${htmlStr}`
-              content = Buffer.from(htmlStr, 'utf-8')
-            }
-          }
-
-          return new Response(content, {
-            headers: {
-              'content-type': mimeTypes[ext] || 'application/octet-stream',
-              'x-frame-options': 'SAMEORIGIN',
-              'cache-control': 'no-cache',
-            },
-          })
-        } catch (err: any) {
-          return new Response(`Error loading file: ${err.message}`, { status: 500 })
-        }
-      }
-
-      // If no file exists, return an interactive preview shell rendering the workspace files
-      const files = await getDirectoryTreeRecursive(wsDir, wsDir)
-      const previewHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Session Preview</title>
-  <style>
-    body { margin: 0; font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; display: grid; place-items: center; min-height: 100vh; box-sizing: border-box; }
-    .box { max-width: 540px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 28px; text-align: center; }
-    h2 { margin-top: 0; color: #38bdf8; font-size: 20px; }
-    p { color: #94a3b8; font-size: 14px; line-height: 1.6; }
-    .badge { display: inline-block; padding: 4px 10px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-radius: 9999px; font-size: 12px; margin-bottom: 12px; }
-    ul { text-align: left; background: rgba(15, 23, 42, 0.6); padding: 12px 16px 12px 32px; border-radius: 8px; font-family: monospace; font-size: 13px; color: #cbd5e1; }
-  </style>
-</head>
-<body>
-  <div class="box">
-    <span class="badge">Session Workspace Live Runner</span>
-    <h2>Workspace Initialized</h2>
-    <p>The agent is working on this session's development environment. As soon as an HTML or web file is created, it will live-render here automatically.</p>
-    ${files.length > 0 ? `<p style="margin-top:16px;font-weight:600;">Current Workspace Files (${files.length}):</p><ul>${files.map(f => `<li>${f.path}</li>`).join('')}</ul>` : ''}
-  </div>
-</body>
-</html>`
-      return new Response(previewHtml, {
-        headers: { 'content-type': 'text/html; charset=utf-8' },
-      })
     }
 
     // 24c. Session Workspace File Tree: GET /api/session/:id/workspace/tree
@@ -3219,14 +3013,14 @@ async function executeGeminiPrompt(
   const selectedAgentId = session.agent || 'build'
 
   // Agno Agent Framework Team Initialization & Coordination
-  const agnoTeam = createKvantAgnoTeam()
-  const agnoLog = await agnoTeam.coordinateTask(text, {
+  const agnoSession = getOrCreateSessionAgno(sessionID)
+  const agnoResult = await agnoSession.team.coordinateTask(text, {
     sessionId: sessionID,
     workspaceDir: workspaceRoot,
     agentName: selectedAgentId,
-  }).catch(() => 'Agno framework coordination active.')
+  }).catch(() => ({ output: 'Agno workflow initialization failed; agent tools remain available.', workflow: undefined }))
 
-  const initialThought = `[Agno Framework Active] ${agnoLog}\nAnalyzing workspace context and orchestrating subagents for optimal execution...`
+  const initialThought = `[Agno Framework Active] ${agnoResult.output}\nAnalyzing workspace context and orchestrating subagents for optimal execution...`
   const reasoningPart: SessionMessageAssistantReasoning = {
     type: 'reasoning',
     text: initialThought,
@@ -3731,4 +3525,3 @@ ${workspaceGroundTruth}`
     })
   }
 }
-

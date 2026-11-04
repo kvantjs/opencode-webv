@@ -480,11 +480,11 @@ export function SessionStudioPanel({
             <div className={styles.iframeContainer}>
               <iframe
                 key={refreshKey}
-                src={`${previewUrl}?t=${refreshKey}`}
+                src={previewUrl}
                 className={styles.previewIframe}
                 style={{ width: deviceWidth }}
                 title="Session Web Application Preview"
-                sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
+                sandbox="allow-scripts allow-forms allow-modals"
               />
             </div>
           </div>

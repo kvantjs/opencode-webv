@@ -27,6 +27,7 @@ or a focused mobile chat view.
   composer.
 - Fork, compact, undo, redo, and export sessions.
 - Inspect nested Code Mode calls and their progress inside `execute` tools.
+- Preview generated React + Vite workspaces through a real, per-session Vite dev server.
 - Install the responsive interface on a phone or use it in a desktop browser.
 
 ## How it works
@@ -47,6 +48,15 @@ in other OpenCode clients, and changes made elsewhere stream back into the web
 interface. The app projects V2 streaming events into the same message shapes
 returned by the history API. After an event connection drops, it reconnects
 and reloads cached data to recover missed events.
+
+Generated React workspaces are previewed by Vite's open-source dev server on
+the same host as the web app. The server honors a workspace `vite.config.ts`
+when present, otherwise it enables the official React plugin, and the app
+proxies requests back to the correct session. No hosted preview provider or
+per-preview usage quota is involved; idle servers are closed and started again
+when that session is previewed. Preview availability and performance therefore
+depend on the host's resources and on the dependencies installed in the
+workspace.
 
 ## Running it
 
