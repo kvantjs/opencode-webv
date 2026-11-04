@@ -143,20 +143,14 @@ export async function loadSessionsFromFirestore(userId?: string): Promise<Sessio
   if (!db) return null
   try {
     const sessionsCol = collection(db, 'sessions')
-    let q
-    if (userId) {
-      q = query(sessionsCol, where('userId', '==', userId), orderBy('updatedAt', 'desc'), limit(100))
-    } else {
-      q = query(sessionsCol, orderBy('updatedAt', 'desc'), limit(100))
-    }
-    const snapshot = await getDocs(q)
+    const snapshot = await getDocs(sessionsCol)
     const sessions: SessionInfo[] = []
     snapshot.forEach((d) => {
       const data = d.data()
       if (data.rawData) {
         try {
           const parsed = JSON.parse(data.rawData)
-          if (!userId || data.userId === userId) {
+          if (!userId || data.userId === userId || !data.userId) {
             sessions.push(parsed)
           }
         } catch {
@@ -164,6 +158,7 @@ export async function loadSessionsFromFirestore(userId?: string): Promise<Sessio
         }
       }
     })
+    sessions.sort((a, b) => ((b as any).time?.updated || 0) - ((a as any).time?.updated || 0))
     return sessions.length > 0 ? sessions : null
   } catch (err) {
     console.warn('Firestore load sessions error:', err)
@@ -176,8 +171,7 @@ export async function loadMessagesFromFirestore(sessionId: string): Promise<Sess
   if (!db) return null
   try {
     const messagesCol = collection(db, 'sessions', sessionId, 'messages')
-    const q = query(messagesCol, orderBy('createdAt', 'asc'), limit(200))
-    const snapshot = await getDocs(q)
+    const snapshot = await getDocs(messagesCol)
     const messages: SessionMessageInfo[] = []
     snapshot.forEach((d) => {
       const data = d.data()
@@ -189,6 +183,7 @@ export async function loadMessagesFromFirestore(sessionId: string): Promise<Sess
         }
       }
     })
+    messages.sort((a, b) => ((a as any).time?.created || 0) - ((b as any).time?.created || 0))
     return messages.length > 0 ? messages : null
   } catch (err) {
     console.warn(`Firestore load messages for [${sessionId}] error:`, err)
