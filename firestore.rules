@@ -1,37 +1,43 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
 
-    function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    function ownsUser(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function ownsSession(sessionId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/sessions/$(sessionId))
+        && get(/databases/$(database)/documents/sessions/$(sessionId)).data.userId == request.auth.uid;
     }
 
     match /users/{userId} {
-      allow read, write: if isValidId(userId);
-    }
-    match /users {
-      allow read, write: if true;
+      allow read, create, update, delete: if ownsUser(userId);
     }
 
     match /sessions/{sessionId} {
-      allow read, write: if isValidId(sessionId);
+      allow read, delete: if ownsSession(sessionId);
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if ownsSession(sessionId)
+        && request.resource.data.userId == request.auth.uid;
 
       match /messages/{messageId} {
-        allow read, write: if isValidId(messageId);
+        allow read, delete: if ownsSession(sessionId);
+        allow create, update: if ownsSession(sessionId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.sessionId == sessionId;
       }
-      match /messages {
-        allow read, write: if true;
-      }
-    }
-    match /sessions {
-      allow read, write: if true;
     }
 
     match /projects/{projectId} {
-      allow read, write: if isValidId(projectId);
-    }
-    match /projects {
-      allow read, write: if true;
+      allow read, delete: if signedIn()
+        && resource.data.userId == request.auth.uid;
+      allow create, update: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
     }
   }
 }

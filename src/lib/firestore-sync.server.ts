@@ -12,36 +12,32 @@ import {
   orderBy,
   limit,
 } from 'firebase/firestore'
-import { readFileSync, existsSync } from 'node:fs'
-import path from 'node:path'
 import type { SessionInfo, SessionMessageInfo, Project as ApiProject } from '@opencode/client'
-import firebaseConfig from '../../firebase-applet-config.json'
+import { firebaseConfig, FIRESTORE_DATABASE_ID, hasFirebaseConfiguration } from './firebase-config'
 
 let firestoreDb: any = null
+
+function isExpectedAuthFallback(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code
+  const message = error instanceof Error ? error.message : String(error)
+  return code === 'permission-denied' || /permission|unauthenticated|insufficient/i.test(message)
+}
+
+function logFirestoreFailure(operation: string, error: unknown): void {
+  if (isExpectedAuthFallback(error)) return
+  console.warn(`${operation} Firestore sync warning:`, error)
+}
 
 function getFirestoreInstance() {
   if (firestoreDb) return firestoreDb
   try {
-    let config = firebaseConfig as any
-    if (!config || !config.apiKey) {
-      const configPath = path.join(process.cwd(), 'firebase-applet-config.json')
-      if (existsSync(configPath)) {
-        config = JSON.parse(readFileSync(configPath, 'utf-8'))
-      }
-    }
-
-    if (!config || !config.apiKey) return null
+    if (!hasFirebaseConfiguration()) return null
 
     const app = getApps().length > 0 ? getApp() : initializeApp({
-      apiKey: config.apiKey,
-      authDomain: config.authDomain,
-      projectId: config.projectId,
-      storageBucket: config.storageBucket,
-      messagingSenderId: config.messagingSenderId,
-      appId: config.appId,
+      ...firebaseConfig,
     })
 
-    firestoreDb = getFirestore(app, config.firestoreDatabaseId)
+    firestoreDb = getFirestore(app, FIRESTORE_DATABASE_ID)
     return firestoreDb
   } catch (err) {
     console.warn('Firestore initialization warning (will use resilient fallback):', err)
@@ -75,7 +71,7 @@ export async function persistSessionToFirestore(
       { merge: true },
     )
   } catch (err) {
-    console.warn(`Firestore save session [${session.id}] error:`, err)
+    logFirestoreFailure(`save session [${session.id}]`, err)
   }
 }
 
@@ -123,7 +119,7 @@ export async function persistMessageToFirestore(
       { merge: true },
     )
   } catch (err) {
-    console.warn(`Firestore save message [${message.id}] error:`, err)
+    logFirestoreFailure(`save message [${message.id}]`, err)
   }
 }
 
@@ -134,7 +130,7 @@ export async function deleteSessionFromFirestore(sessionId: string): Promise<voi
     const sessionDocRef = doc(db, 'sessions', sessionId)
     await deleteDoc(sessionDocRef)
   } catch (err) {
-    console.warn(`Firestore delete session [${sessionId}] error:`, err)
+    logFirestoreFailure(`delete session [${sessionId}]`, err)
   }
 }
 
@@ -161,7 +157,7 @@ export async function loadSessionsFromFirestore(userId?: string): Promise<Sessio
     sessions.sort((a, b) => ((b as any).time?.updated || 0) - ((a as any).time?.updated || 0))
     return sessions.length > 0 ? sessions : null
   } catch (err) {
-    console.warn('Firestore load sessions error:', err)
+    logFirestoreFailure('load sessions', err)
     return null
   }
 }
@@ -186,7 +182,7 @@ export async function loadMessagesFromFirestore(sessionId: string): Promise<Sess
     messages.sort((a, b) => ((a as any).time?.created || 0) - ((b as any).time?.created || 0))
     return messages.length > 0 ? messages : null
   } catch (err) {
-    console.warn(`Firestore load messages for [${sessionId}] error:`, err)
+    logFirestoreFailure(`load messages for [${sessionId}]`, err)
     return null
   }
 }

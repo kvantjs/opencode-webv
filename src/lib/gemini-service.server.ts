@@ -672,6 +672,82 @@ function getGeminiClient(): GoogleGenAI | null {
   })
 }
 
+/**
+ * Keep model selection resilient. Preview models can be temporarily saturated
+ * even when the API key is valid, so a single 503 must not become the user-facing
+ * explanation for every failure.
+ */
+export const DEFAULT_GEMINI_MODEL = 'gemini-flash-lite-latest'
+const GEMINI_FALLBACK_MODELS = [
+  DEFAULT_GEMINI_MODEL,
+  'gemini-3.5-flash-lite',
+  'gemini-3-flash-preview',
+  'gemini-3.5-flash',
+] as const
+
+function geminiErrorStatus(error: unknown): number | undefined {
+  const value = error as { status?: unknown; code?: unknown; message?: unknown } | null
+  const status = Number(value?.status ?? value?.code)
+  if (Number.isFinite(status) && status > 0) return status
+  const message = String(value?.message ?? error ?? '')
+  const match = message.match(/\b(401|403|404|429|500|502|503|504)\b/)
+  return match ? Number(match[1]) : undefined
+}
+
+function isRetryableGeminiError(error: unknown): boolean {
+  const status = geminiErrorStatus(error)
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function generateGeminiContent(
+  ai: GoogleGenAI,
+  requestedModel: string,
+  contents: any[],
+  config: Record<string, unknown>,
+): Promise<{ response: any; model: string }> {
+  const candidates = [requestedModel, ...GEMINI_FALLBACK_MODELS].filter(
+    (model, index, all) => model && all.indexOf(model) === index,
+  )
+  let lastError: unknown
+
+  for (const model of candidates) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await ai.models.generateContent({ model, contents, config })
+        return { response, model }
+      } catch (error) {
+        lastError = error
+        if (!isRetryableGeminiError(error)) break
+        if (attempt === 0) await wait(350)
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? 'Gemini request failed'))
+}
+
+function formatGeminiError(error: unknown): string {
+  const status = geminiErrorStatus(error)
+  const message = error instanceof Error ? error.message : String(error)
+  if (status === 401 || status === 403) {
+    return 'A chave Gemini foi rejeitada ou não tem permissão para usar a API. Verifique a chave e as APIs habilitadas.'
+  }
+  if (status === 404) {
+    return 'O modelo selecionado não está disponível para esta conta. O agente tentou modelos alternativos.'
+  }
+  if (status === 429) {
+    return 'A cota ou o limite de requisições Gemini foi atingido. Aguarde alguns instantes ou use uma conta/plano com cota disponível.'
+  }
+  if (status === 500 || status === 502 || status === 503 || status === 504) {
+    return 'Os modelos Gemini estão temporariamente indisponíveis ou sob alta demanda. O agente tentou modelos alternativos e não conseguiu concluir a geração.'
+  }
+  return message || 'A geração Gemini falhou por um erro não identificado.'
+}
+
 // Active Generation Abort Controllers
 const activeControllers = new Map<string, AbortController>()
 // Active Busy Sessions Set
@@ -1676,7 +1752,7 @@ async function executeWorkspaceTool(name: string, args: any, workspaceDir: strin
         if (ai) {
           try {
             const res = await ai.models.generateContent({
-              model: 'gemini-3.1-flash-lite',
+              model: DEFAULT_GEMINI_MODEL,
               contents: `Você é o ${subName}, um subagente em tempo real responsável por analisar o progresso técnico e descrever concisamente para o usuário.
 Analise os passos e forneça uma descrição curta, precisa e real de 1 a 3 frases em português sobre o que foi feito, o resultado da compilação ou a próxima etapa.
 Instruções: ${instructions}
@@ -1701,7 +1777,7 @@ Contexto dos passos: ${ctx || 'Etapa em desenvolvimento'}`,
       if (!ai) return `[Subagente ${subName}]: Cliente de IA não disponível.`
       try {
         const res = await ai.models.generateContent({
-          model: 'gemini-3.1-flash-lite',
+          model: DEFAULT_GEMINI_MODEL,
           contents: `Você é o ${subName}, um subagente de engenharia operando no ambiente ${dir}.\nTarefa: ${instructions}\nContexto: ${ctx}\nExecute sua análise ou geração e retorne um resultado técnico objetivo.`,
         })
         const subOutput = res.text?.trim() || 'Subagente concluiu a tarefa com sucesso.'
@@ -2150,7 +2226,7 @@ export async function handleGeminiServiceRequest(
     return Response.json({
       data: {
         providerID: 'google',
-        id: 'gemini-3.1-flash-lite',
+        id: DEFAULT_GEMINI_MODEL,
       },
     })
   }
@@ -2257,7 +2333,7 @@ export async function handleGeminiServiceRequest(
         updated: Date.now(),
       },
       agent: body.agent || 'build',
-      model: body.model || { providerID: 'google', id: 'gemini-3.1-flash-lite' },
+      model: body.model || { providerID: 'google', id: DEFAULT_GEMINI_MODEL },
     }
     ;(session as any).userId = currentUserId
 
@@ -2832,7 +2908,7 @@ export async function handleGeminiServiceRequest(
         try {
           const transcript = messages.map((m) => `${m.type.toUpperCase()}: ${'text' in m ? m.text : ''}`).join('\n')
           const res = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite',
+            model: DEFAULT_GEMINI_MODEL,
             contents: `Summarize the key points, decisions, and code discussed in this development session concisely:\n\n${transcript}`,
           })
           if (res.text) summaryText = res.text
@@ -3009,7 +3085,7 @@ async function executeGeminiPrompt(
 
   // 3. Create Assistant Message with Active Unified Agent & Reasoning State
   const assistantMsgId = `msg_a_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-  const selectedModelId = session.model?.id || 'gemini-3.8-flash'
+  const selectedModelId = session.model?.id || DEFAULT_GEMINI_MODEL
   const selectedAgentId = session.agent || 'build'
 
   // Agno Agent Framework Team Initialization & Coordination
@@ -3150,7 +3226,7 @@ ${workspaceGroundTruth}`
 
     let targetModel = GEMINI_MODELS.some((m) => m.id === selectedModelId)
       ? selectedModelId
-      : 'gemini-3.8-flash'
+      : DEFAULT_GEMINI_MODEL
 
     // Multi-turn tool execution loop (up to 10 autonomous turns)
     let currentContents: any[] = []
@@ -3196,31 +3272,27 @@ ${workspaceGroundTruth}`
 
     while (shouldContinue && turnCount < 10 && !abortController.signal.aborted) {
       turnCount++
-      const response = await ai.models.generateContent({
-        model: targetModel,
-        contents: currentContents,
-        config: {
-          systemInstruction,
-          tools: workspaceTools as any,
-          thinkingConfig: {
-            thinkingBudget: 2048,
-          },
+      const generated = await generateGeminiContent(ai, targetModel, currentContents, {
+        systemInstruction,
+        tools: workspaceTools as any,
+        thinkingConfig: {
+          thinkingBudget: 2048,
         },
       })
+      const response = generated.response
+      targetModel = generated.model
 
       const functionCalls = response.functionCalls
       const textOutput = response.text || ''
 
       // Extract model thoughts if emitted
       const candidateParts = response.candidates?.[0]?.content?.parts || []
-      const modelThoughts = candidateParts
-        .filter((p: any) => p.thought === true)
-        .map((p: any) => p.text || '')
-        .filter(Boolean)
-        .join('\n')
-
-      if (modelThoughts) {
-        reasoningPart.text += (reasoningPart.text ? '\n\n' : '') + modelThoughts
+      const hasModelThought = candidateParts.some((p: any) => p.thought === true)
+      if (hasModelThought) {
+        const progressSummary = functionCalls?.length
+          ? 'Analisando a solicitação e preparando as ferramentas necessárias.'
+          : 'Analisando a solicitação e verificando o contexto disponível.'
+        reasoningPart.text += (reasoningPart.text ? '\n\n' : '') + progressSummary
         broadcastEvent({
           type: 'session.thought.delta',
           id: `evt_${Date.now()}`,
@@ -3228,7 +3300,7 @@ ${workspaceGroundTruth}`
           data: {
             sessionID,
             assistantMessageID: assistantMsgId,
-            delta: modelThoughts,
+            delta: `\n\n${progressSummary}`,
           },
         })
       }
@@ -3458,8 +3530,8 @@ ${workspaceGroundTruth}`
     }
   } catch (err: any) {
     console.error('Gemini API execution error:', err)
-    const errMessage = err?.message || String(err)
-    fullAssistantText = `### Autonomous Agent Notice\n\n${errMessage}\n\n> **Tip**: Verify your \`GEMINI_API_KEY\` in your environment or Settings > Secrets panel.`
+    const errMessage = formatGeminiError(err)
+    fullAssistantText = `### Autonomous Agent Notice\n\n${errMessage}`
     const textPart = assistantMsg.content.find((c): c is { type: 'text'; text: string } => c.type === 'text')
     if (textPart) {
       textPart.text = fullAssistantText

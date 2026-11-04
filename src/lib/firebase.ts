@@ -7,25 +7,14 @@ import {
   onAuthStateChanged,
   browserLocalPersistence,
   setPersistence,
-  signInAnonymously,
   type User,
 } from 'firebase/auth'
 import { getFirestore, doc, setDoc, getDoc, getDocFromServer } from 'firebase/firestore'
-import config from '../../firebase-applet-config.json'
-import { handleFirestoreError, OperationType } from './firebase-errors'
-
-const firebaseConfig = {
-  apiKey: config.apiKey,
-  authDomain: config.authDomain,
-  projectId: config.projectId,
-  storageBucket: config.storageBucket,
-  messagingSenderId: config.messagingSenderId,
-  appId: config.appId,
-}
+import { firebaseConfig, FIRESTORE_DATABASE_ID, hasFirebaseConfiguration } from './firebase-config'
 
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig)
 export const auth = getAuth(app)
-export const db = getFirestore(app, config.firestoreDatabaseId)
+export const db = getFirestore(app, FIRESTORE_DATABASE_ID)
 
 // Configure local persistence so user remains logged in across reloads
 if (typeof window !== 'undefined') {
@@ -36,16 +25,17 @@ if (typeof window !== 'undefined') {
 
 // Test connection on boot per Firebase skill guidelines
 export async function testConnection(): Promise<boolean> {
+  if (!hasFirebaseConfiguration() || !auth.currentUser) return false
   try {
     await getDocFromServer(doc(db, 'test', 'connection'))
     return true
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firebase Firestore is offline or checking connection.')
-      return false
-    }
-    // Document not existing is a normal successful server reach
-    return true
+    const message = error instanceof Error ? error.message : String(error)
+    if (/offline|permission-denied|insufficient permissions/i.test(message)) return false
+    // A missing test document still proves that the authenticated server is reachable.
+    if (/not-found|not found/i.test(message)) return true
+    console.warn('Firebase Firestore connection check failed:', message)
+    return false
   }
 }
 
@@ -143,13 +133,9 @@ export async function ensureAuth(): Promise<User | null> {
           resolve(null)
           return
         }
-        try {
-          const cred = await signInAnonymously(auth)
-          window.localStorage.setItem('oc-user-id', cred.user.uid)
-          resolve(cred.user)
-        } catch {
-          resolve(null)
-        }
+        // Anonymous auth is intentionally not forced: many Firebase projects
+        // disable it, and doing so creates noisy ADMIN_ONLY_OPERATION errors.
+        resolve(null)
       }
     })
   })
